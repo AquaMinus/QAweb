@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+/* ── QAweb Global Styles ── */
+
+/* Color scheme for quiz options */
+:root {
+  --color-red: #e63946;
+  --color-blue: #457b9d;
+  --color-yellow: #f4a261;
+  --color-green: #2a9d8f;
+  --color-bg: #1a1a2e;
+  --color-surface: #16213e;
+  --color-text: #f1faee;
+}
+
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  min-height: 100dvh;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Prevent text selection on game screens */
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Quiz option colors */
+.bg-opt-red { background-color: var(--color-red); }
+.bg-opt-blue { background-color: var(--color-blue); }
+.bg-opt-yellow { background-color: var(--color-yellow); }
+.bg-opt-green { background-color: var(--color-green); }
+
+.text-opt-red { color: var(--color-red); }
+.text-opt-blue { color: var(--color-blue); }
+.text-opt-yellow { color: var(--color-yellow); }
+.text-opt-green { color: var(--color-green); }
+
+/* Animation for score pop-in */
+@keyframes score-pop {
+  0% { transform: scale(0.5); opacity: 0; }
+  70% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-score-pop {
+  animation: score-pop 0.4s ease-out;
+}
+
+/* Pulse for waiting states */
+@keyframes pulse-gentle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-pulse-gentle {
+  animation: pulse-gentle 2s ease-in-out infinite;
+}
