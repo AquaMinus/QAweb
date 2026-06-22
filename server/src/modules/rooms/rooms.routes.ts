@@ -1,31 +1,96 @@
 import { Hono } from 'hono';
 import { authGuard } from '../auth/auth.guard.js';
+import * as svc from './rooms.service.js';
+import { engine } from '../quiz/quiz.engine.js';
 
 export const roomRoutes = new Hono();
 roomRoutes.use('*', authGuard);
 
-// POST /api/rooms — create a new room
-roomRoutes.post('/', (c) => {
-  return c.json({ message: 'Not yet implemented' }, 501);
+// Create room
+roomRoutes.post('/', async (c) => {
+  const host = c.var.host;
+  const { questionSetId, settings } = await c.req.json();
+  if (!questionSetId) {
+    return c.json({ error: 'VALIDATION', message: '请选择题库' }, 400);
+  }
+
+  try {
+    const room = svc.createRoom(host.id, questionSetId, settings || {});
+    return c.json({ room }, 201);
+  } catch (err: any) {
+    if (err.message === 'EMPTY_QUESTION_SET') {
+      return c.json({ error: 'EMPTY', message: '题库为空，请先添加题目' }, 400);
+    }
+    throw err;
+  }
 });
 
-// GET /api/rooms/:pin — get room info (also for players to check before joining)
-// Note: player check does NOT need auth
+// List host's active rooms
+roomRoutes.get('/mine', (c) => {
+  const host = c.var.host;
+  const pins = engine.getHostRooms(host.id);
+  const rooms = pins.map(p => engine.getRoom(p)).filter(Boolean).map(r => ({
+    pin: r!.pin,
+    phase: r!.phase,
+    playerCount: r!.players.size,
+    questionCount: r!.questions.length,
+    locked: r!.locked,
+    createdAt: r!.createdAt,
+  }));
+  return c.json({ rooms });
+});
+
+// Get room info (also used by players to check before joining)
 roomRoutes.get('/:pin', (c) => {
-  return c.json({ message: 'Not yet implemented' }, 501);
+  const pin = c.req.param('pin');
+  const room = engine.getRoom(pin);
+  if (!room) {
+    return c.json({ error: 'NOT_FOUND', message: '房间不存在或已关闭' }, 404);
+  }
+
+  const info = svc.getRoomInfo(pin);
+  return c.json({ room: info });
 });
 
-// DELETE /api/rooms/:pin — dissolve room
+// Check room status (public — for player join validation)
+roomRoutes.get('/:pin/check', (c) => {
+  const pin = c.req.param('pin');
+  const room = engine.getRoom(pin);
+  if (!room) return c.json({ valid: false, reason: '房间不存在' });
+  if (room.phase !== 'lobby') return c.json({ valid: false, reason: '游戏已开始' });
+  if (room.locked) return c.json({ valid: false, reason: '房间已锁定' });
+  return c.json({
+    valid: true,
+    playerCount: room.players.size,
+    settings: {
+      timeLimitSec: room.settings.timeLimitSec,
+      scoringMode: room.settings.scoringMode,
+    },
+  });
+});
+
+// Dissolve room
 roomRoutes.delete('/:pin', (c) => {
-  return c.json({ message: 'Not yet implemented' }, 501);
+  const host = c.var.host;
+  const pin = c.req.param('pin');
+  const ok = svc.dissolveRoom(pin, host.id);
+  if (!ok) return c.json({ error: 'NOT_FOUND', message: '房间不存在' }, 404);
+  return c.json({ success: true });
 });
 
-// POST /api/rooms/:pin/lock — toggle room lock
-roomRoutes.post('/:pin/lock', (c) => {
-  return c.json({ message: 'Not yet implemented' }, 501);
+// Lock/unlock room
+roomRoutes.post('/:pin/lock', async (c) => {
+  const host = c.var.host;
+  const pin = c.req.param('pin');
+  const { locked } = await c.req.json();
+  engine.lockRoom(pin, host.id, !!locked);
+  return c.json({ success: true, locked: !!locked });
 });
 
-// POST /api/rooms/:pin/kick/:sessionToken — kick player
-roomRoutes.post('/:pin/kick/:sessionToken', (c) => {
-  return c.json({ message: 'Not yet implemented' }, 501);
+// Kick player
+roomRoutes.post('/:pin/kick/:token', (c) => {
+  const host = c.var.host;
+  const { pin, token } = c.req.param();
+  engine.kickPlayer(pin, host.id, token);
+  return c.json({ success: true });
 });

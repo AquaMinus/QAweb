@@ -22,7 +22,6 @@
   let editing = $state<QuestionData | null>(null);
   let showEditor = $state(false);
   let editText = $state('');
-  let editTime = $state(20);
   let editOpts = $state<{ text: string; isCorrect: boolean; color: OptionColor }[]>([
     { text: '', isCorrect: true, color: 'red' },
     { text: '', isCorrect: false, color: 'blue' },
@@ -48,7 +47,6 @@
   function openEditor(q: any = null) {
     editing = q ?? null;
     editText = q?.text ?? '';
-    editTime = q?.timeLimitSec ?? 20;
     editOpts = q?.options?.map((o: any) => ({ text: o.text, isCorrect: o.isCorrect, color: o.color }))
       ?? COLORS.map((c, i) => ({ text: '', isCorrect: i === 0, color: c }));
     showEditor = true;
@@ -80,7 +78,6 @@
 
     const body = {
       text: editText,
-      timeLimitSec: editTime,
       options: editOpts.map((o, i) => ({ ...o, text: o.text.trim(), orderIndex: i })),
     };
 
@@ -211,7 +208,6 @@
                     {o.isCorrect ? '✓' : ''}
                   </span>
                 {/each}
-                <span class="text-gray-600 text-xs ml-2">{q.timeLimitSec}s</span>
               </div>
             </div>
             <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -240,13 +236,6 @@
         <textarea bind:value={editText} rows="2" required
           class="w-full px-4 py-2 rounded-xl bg-[var(--color-bg)] border border-gray-700 text-white focus:outline-none focus:border-indigo-500 resize-none"
         ></textarea>
-      </div>
-
-      <!-- Time limit -->
-      <div class="mb-4">
-        <label class="block text-sm text-gray-400 mb-1">答题时间（秒）</label>
-        <input type="number" bind:value={editTime} min="5" max="120"
-          class="w-24 px-4 py-2 rounded-xl bg-[var(--color-bg)] border border-gray-700 text-white focus:outline-none focus:border-indigo-500" />
       </div>
 
       <!-- Options -->

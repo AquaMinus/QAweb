@@ -41,8 +41,8 @@ export function getSessionToken(): string {
   return state.sessionToken;
 }
 
-/** Connect to the WebSocket server for a given room. */
-export function connect(pin: string): void {
+/** Connect to the WebSocket server for a given room. Extra query params can be appended. */
+export function connect(pin: string, extraParams: Record<string, string> = {}): void {
   if (!browser) return;
 
   state.pin = pin;
@@ -51,7 +51,13 @@ export function connect(pin: string): void {
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.host;
-  const url = `${protocol}//${host}/ws?token=${encodeURIComponent(token)}&pin=${encodeURIComponent(pin)}`;
+  // If extraParams has 'cred', use it as the token (for host auth); otherwise use session UUID
+  const effectiveToken = extraParams.cred || token;
+  delete extraParams.cred;
+  let url = `${protocol}//${host}/ws?token=${encodeURIComponent(effectiveToken)}&pin=${encodeURIComponent(pin)}`;
+  for (const [k, v] of Object.entries(extraParams)) {
+    url += `&${encodeURIComponent(k)}=${encodeURIComponent(v)}`;
+  }
 
   state.ws = new WebSocket(url);
 
@@ -59,12 +65,7 @@ export function connect(pin: string): void {
     console.log('[WS] Connected');
     state.reconnectAttempts = 0;
     state.reconnectDelayMs = 1000;
-
-    // If reconnect, send reconnect message instead of join
-    if (state.reconnectAttempts === 0) {
-      // First connection — the server already has our token/pin from URL params
-      // The actual join message will be sent by the app logic
-    }
+    dispatch('ws:open', { type: 'ws:open', payload: {}, ts: Date.now() });
   };
 
   state.ws.onmessage = (event) => {
@@ -163,15 +164,6 @@ function scheduleReconnect(): void {
   state.reconnectTimer = setTimeout(() => {
     if (state.pin) {
       connect(state.pin);
-      // After reconnection, send reconnect message
-      const origOpen = state.ws?.onopen;
-      if (state.ws) {
-        const ws = state.ws;
-        state.ws.onopen = (ev) => {
-          send('player:reconnect', { pin: state.pin, session_token: getSessionToken() });
-          if (origOpen) origOpen.call(ws, ev);
-        };
-      }
     }
   }, delay);
 }

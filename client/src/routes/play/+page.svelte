@@ -15,41 +15,26 @@
     error = '';
 
     if (!pin.trim() || pin.trim().length !== 6) {
-      error = '请输入6位房间 PIN 码';
-      return;
+      error = '请输入6位房间 PIN 码'; return;
     }
     if (!name.trim()) {
-      error = '请输入你的昵称';
-      return;
-    }
-    if (name.trim().length > 20) {
-      error = '昵称不能超过20个字符';
-      return;
+      error = '请输入你的昵称'; return;
     }
 
     loading = true;
-
     try {
-      // Validate the room exists and is joinable
-      await roomsApi.getInfo(pin.trim());
+      // Check if room exists and is joinable
+      const check = await fetch(`/api/rooms/${pin.trim()}/check`);
+      const data = await check.json();
+      if (!data.valid) {
+        error = data.reason || '无法加入'; loading = false; return;
+      }
       player.setIdentity(pin.trim(), name.trim());
       goto(`/play/${pin.trim()}`);
-    } catch (err) {
-      if (err instanceof ApiError) {
-        error = err.message;
-      } else {
-        error = '无法加入房间，请检查 PIN 码是否正确';
-      }
-    } finally {
-      loading = false;
+    } catch {
+      error = '网络错误，请重试';
     }
-  }
-
-  function handlePinInput(e: Event) {
-    const input = e.target as HTMLInputElement;
-    // Auto-format: only allow digits, max 6
-    input.value = input.value.replace(/\D/g, '').slice(0, 6);
-    pin = input.value;
+    loading = false;
   }
 </script>
 
@@ -61,57 +46,24 @@
     </a>
 
     <form onsubmit={handleJoin} class="space-y-5">
-      <!-- PIN Code -->
       <div>
         <label for="pin" class="block text-sm text-gray-400 mb-1">房间 PIN 码</label>
-        <input
-          id="pin"
-          type="text"
-          inputmode="numeric"
-          pattern="[0-9]*"
-          maxlength="6"
-          value={pin}
-          oninput={handlePinInput}
-          required
+        <input id="pin" type="text" inputmode="numeric" maxlength="6" bind:value={pin} required
           placeholder="输入6位数字"
-          class="w-full px-4 py-4 rounded-xl bg-[var(--color-surface)] border border-gray-700 text-white text-center text-2xl font-mono tracking-widest placeholder-gray-600 focus:outline-none focus:border-emerald-500 transition-colors"
-        />
+          class="w-full px-4 py-4 rounded-xl bg-[var(--color-surface)] border border-gray-700 text-white text-center text-2xl font-mono tracking-widest placeholder-gray-600 focus:outline-none focus:border-emerald-500" />
       </div>
-
-      <!-- Name -->
       <div>
         <label for="name" class="block text-sm text-gray-400 mb-1">你的昵称</label>
-        <input
-          id="name"
-          type="text"
-          bind:value={name}
-          required
-          maxlength="20"
-          placeholder="输入你的昵称"
-          class="w-full px-4 py-3 rounded-xl bg-[var(--color-surface)] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500 transition-colors"
-        />
+        <input id="name" type="text" bind:value={name} required maxlength="20" placeholder="输入你的昵称"
+          class="w-full px-4 py-3 rounded-xl bg-[var(--color-surface)] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500" />
       </div>
-
-      <!-- Error -->
       {#if error}
-        <div class="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-2 text-red-400 text-sm">
-          {error}
-        </div>
+        <div class="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-2 text-red-400 text-sm">{error}</div>
       {/if}
-
-      <!-- Submit -->
       <Button type="submit" variant="play" fullWidth disabled={loading}>
-        {#if loading}
-          <Spinner size="sm" class="mr-2" />
-          加入中...
-        {:else}
-          加入房间
-        {/if}
+        {#if loading}<Spinner size="sm" class="mr-2" />{/if} 加入房间
       </Button>
     </form>
-
-    <p class="mt-8 text-center">
-      <a href="/" class="text-sm text-gray-600 hover:text-gray-400">← 返回首页</a>
-    </p>
+    <p class="mt-8 text-center"><a href="/" class="text-sm text-gray-600 hover:text-gray-400">← 返回首页</a></p>
   </div>
 </div>

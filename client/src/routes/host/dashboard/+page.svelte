@@ -1,13 +1,20 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { auth } from '$lib/stores/auth.svelte';
+  import { roomsApi } from '$lib/api';
   import { onMount } from 'svelte';
 
+  let activeRooms = $state<any[]>([]);
+
   onMount(() => {
-    if (!auth.isLoggedIn) {
-      goto('/host/login');
-    }
+    if (!auth.isLoggedIn) { goto('/host/login'); return; }
+    loadRooms();
   });
+
+  async function loadRooms() {
+    try { const res = await roomsApi.getMine(); activeRooms = res.rooms; }
+    catch { /* ignore */ }
+  }
 
   function handleLogout() {
     auth.clearAuth();
@@ -66,10 +73,29 @@
       </button>
     </div>
 
-    <!-- Placeholder: recent rooms / stats -->
+    <!-- Active rooms -->
     <div class="rounded-2xl bg-[var(--color-surface)] border border-gray-700 p-6">
-      <h2 class="text-lg font-semibold text-white mb-4">最近活动</h2>
-      <p class="text-gray-500 text-sm">暂无活动记录。创建一个房间开始吧！</p>
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-white">我的活动房间</h2>
+        <button onclick={loadRooms} class="text-sm text-gray-500 hover:text-gray-400 cursor-pointer">🔄 刷新</button>
+      </div>
+      {#if activeRooms.length === 0}
+        <p class="text-gray-500 text-sm">暂无活动房间，点击上方"创建答题房间"开始</p>
+      {:else}
+        <div class="space-y-2">
+          {#each activeRooms as r}
+            <button onclick={() => goto(`/host/room/${r.pin}`)}
+              class="w-full flex items-center gap-4 p-3 rounded-xl bg-[var(--color-bg)] hover:bg-gray-800 transition-colors text-left cursor-pointer">
+              <span class="text-xl font-mono font-bold text-indigo-400">{r.pin}</span>
+              <span class="text-white text-sm flex-1">{{
+                lobby: '等待中', countdown: '倒计时', question: '答题中', question_result: '揭晓中', leaderboard: '排行榜', podium: '领奖台', ended: '已结束'
+              }[r.phase] || r.phase}</span>
+              <span class="text-gray-400 text-sm">{r.playerCount} 人</span>
+              <span class="text-gray-500 text-sm">{r.questionCount}题</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
     </div>
   </div>
 </div>

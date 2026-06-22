@@ -114,9 +114,6 @@ export function getQuestion(questionId: string): QuestionData | null {
 
 export function addQuestion(setId: string, data: {
   text: string;
-  timeLimitSec?: number;
-  maxPoints?: number;
-  scoringMode?: ScoringMode;
   orderIndex?: number;
   imageUrl?: string | null;
   options: { text: string; isCorrect: boolean; color: OptionColor; orderIndex: number }[];
@@ -128,9 +125,9 @@ export function addQuestion(setId: string, data: {
     id,
     questionSetId: setId,
     text: data.text.trim(),
-    timeLimitSec: data.timeLimitSec ?? 20,
-    maxPoints: data.maxPoints ?? 1000,
-    scoringMode: data.scoringMode ?? 'fixed',
+    timeLimitSec: 20,    // Default — overridden by room settings
+    maxPoints: 1000,     // Default — overridden by room settings
+    scoringMode: 'fixed', // Default — overridden by room settings
     orderIndex: data.orderIndex ?? nextOrderIndex(setId),
     imageUrl: data.imageUrl?.trim() || null,
     createdAt: now,
@@ -156,9 +153,6 @@ export function addQuestion(setId: string, data: {
 
 export function updateQuestion(questionId: string, data: {
   text?: string;
-  timeLimitSec?: number;
-  maxPoints?: number;
-  scoringMode?: ScoringMode;
   orderIndex?: number;
   imageUrl?: string | null;
   options?: { text: string; isCorrect: boolean; color: OptionColor; orderIndex: number }[];
@@ -168,9 +162,6 @@ export function updateQuestion(questionId: string, data: {
 
   const updates: Record<string, unknown> = {};
   if (data.text !== undefined) updates.text = data.text.trim();
-  if (data.timeLimitSec !== undefined) updates.timeLimitSec = data.timeLimitSec;
-  if (data.maxPoints !== undefined) updates.maxPoints = data.maxPoints;
-  if (data.scoringMode !== undefined) updates.scoringMode = data.scoringMode;
   if (data.orderIndex !== undefined) updates.orderIndex = data.orderIndex;
   if (data.imageUrl !== undefined) updates.imageUrl = data.imageUrl?.trim() || null;
 

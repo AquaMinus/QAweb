@@ -150,6 +150,9 @@ export const roomsApi = {
   create: (data: { questionSetId?: string; settings?: any }) =>
     request<any>('POST', '/rooms', data),
 
+  getMine: () =>
+    request<{ rooms: any[] }>('GET', '/rooms/mine'),
+
   getInfo: (pin: string) =>
     request<any>('GET', `/rooms/${pin}`),
 

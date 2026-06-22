@@ -66,6 +66,8 @@ export interface Room {
   lastActivityAt: number;
   phaseTimer?: ReturnType<typeof setTimeout>;
   questionTimer?: ReturnType<typeof setTimeout>;
+  readingPhase: boolean;     // true during 3s reading time (answers rejected)
+  answerPhaseStartedAt: number; // Unix ms when answer countdown began
 }
 
 export interface RoomSettings {
