@@ -7,8 +7,13 @@ import { validateShareToken } from './modules/questions/share-tokens.js';
 import { getSetById, getQuestions } from './modules/questions/questions.service.js';
 import { exportJSON } from './modules/questions/import-export.js';
 import { engine } from './modules/quiz/quiz.engine.js';
+import { existsSync, readFileSync } from 'fs';
+import { join, extname } from 'path';
+import { fileURLToPath } from 'url';
 
-export function createApp() {
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
+
+function createApp() {
   const app = new Hono();
 
   // ── Global middleware ──
@@ -72,5 +77,33 @@ export function createApp() {
   app.route('/api/questions', questionRoutes);
   app.route('/api/rooms', roomRoutes);
 
+  // ── Static file serving (for production: frontend build copied to public/) ──
+  const publicDir = join(__dirname, '..', 'public');
+  if (existsSync(publicDir)) {
+    const MIME: Record<string, string> = {
+      '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript',
+      '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml',
+      '.ico': 'image/x-icon', '.woff2': 'font/woff2',
+    };
+    // SPA fallback: all non-API routes serve index.html
+    app.get('*', (c) => {
+      const url = new URL(c.req.url);
+      // Don't interfere with API or WS routes
+      if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws')) {
+        return c.notFound();
+      }
+      let filePath = join(publicDir, url.pathname === '/' ? 'index.html' : url.pathname.slice(1));
+      if (!existsSync(filePath) || !filePath.startsWith(publicDir)) {
+        filePath = join(publicDir, 'index.html');
+      }
+      const ext = extname(filePath);
+      return new Response(readFileSync(filePath), {
+        headers: { 'Content-Type': MIME[ext] || 'application/octet-stream' },
+      });
+    });
+  }
+
   return app;
 }
+
+export { createApp };

@@ -82,118 +82,217 @@ QAweb/
 
 ## 部署指南
 
-### 方案一：Docker 一键部署（推荐）
+项目设计了三种部署方式，从最简单到最灵活依次排列。无论哪种方式，核心逻辑不变：**前端是一个纯静态 SPA，只需一个 HTTP 地址；后端是 Node.js 进程，提供 REST API 和 WebSocket。**
 
-前后端同源部署，适合快速上线：
+> 所有方案中，游戏数据存储在 `server/data/qaweb.db`（SQLite），持久化在该文件中，备份此文件即可。
+
+---
+
+### 方案一：Docker 一键部署（最简单，前后端一体）
+
+一个 `docker compose up -d` 搞定全部。后端会自动挂载内嵌的前端静态资源，打开 `http://服务器IP:3000` 就能访问完整系统。
+
+**步骤：**
 
 ```bash
-# 1. 克隆项目
-git clone https://github.com/AquaMinus/QAweb.git && cd QAweb
+# 1. 在服务器上克隆项目
+git clone https://github.com/AquaMinus/QAweb.git
+cd QAweb
 
-# 2. 设置环境变量（可选，不设使用默认值）
-export JWT_SECRET="your-random-secret-string"
+# 2. 设置 JWT 密钥（生产环境务必修改！）
+export JWT_SECRET="请替换为一个随机长字符串"
 
-# 3. 构建前端静态文件
-cd client && npm install && npm run build
-# 构建产物：client/build/
+# 3. 启动
+docker compose up -d
 
-# 4. Docker Compose 启动后端
-cd .. && docker compose up -d
-
-# 5. 将前端静态文件也挂到后端 Hono 上，或使用 Nginx 反代
-#    后端运行在 http://your-server:3000
-#    前端 build/ 目录可放到任意静态文件服务器
+# 4. 验证
+curl http://localhost:3000/api/health
 ```
 
-**纯 Docker（不带 compose）：**
+访问 `http://你的服务器IP:3000` 即可使用。Docker 镜像内已包含前端构建产物，无需额外配置。
 
-```bash
-cd server
-docker build -t qaweb-server .
-docker run -d -p 3000:3000 \
-  -v qaweb-data:/app/data \
-  -e JWT_SECRET="your-random-secret" \
-  qaweb-server
+**自定义端口**（如改为 80）：
+
+修改 `docker-compose.yml` 中 `ports: - "80:3000"`，然后 `docker compose up -d`。
+
+---
+
+### 方案二：Nginx 反代 + 后端（推荐有域名的场景）
+
+在此方案中，Nginx 负责两件事：**把前端 HTML/JS/CSS 直接发给浏览器**，**把 `/api` 和 `/ws` 请求转发给后端**。
+
+#### 架构示意
+
+```
+浏览器 ──→ Nginx (80/443)
+              ├─ /          → 前端静态文件 (client/build/)
+              ├─ /api/*     → 后端 localhost:3000
+              └─ /ws        → 后端 localhost:3000 (WebSocket)
 ```
 
-### 方案二：前后端分离 + CDN
-
-前端放 Cloudflare Pages / Vercel，后端放轻量云服务器：
-
-**后端部署（任选一台 Linux 服务器）：**
+#### 步骤 1：部署后端
 
 ```bash
-# 服务器上
-git clone https://github.com/AquaMinus/QAweb.git && cd QAweb/server
+# 在服务器上
+git clone https://github.com/AquaMinus/QAweb.git
+cd QAweb/server
+
 npm install
-export JWT_SECRET="production-random-secret"
-export PORT=3000
 npm run db:migrate
-npx tsx src/index.ts &
-# 用 systemd 或 pm2 管理进程更佳
-```
 
-**前端部署到 Cloudflare Pages：**
+# 创建 systemd 服务，保证进程一直运行
+sudo tee /etc/systemd/system/qaweb.service << 'EOF'
+[Unit]
+Description=QAweb Server
+After=network.target
 
-```bash
-cd client
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/QAweb/server
+ExecStart=/usr/bin/npx tsx src/index.ts
+Environment=PORT=3000
+Environment=JWT_SECRET=你的随机密钥
+Environment=JWT_EXPIRES_IN=2h
+Restart=always
 
-# 创建 .env.production
-cat > .env.production << EOF
-VITE_API_BASE=https://your-server.com/api
-VITE_WS_BASE=https://your-server.com
+[Install]
+WantedBy=multi-user.target
 EOF
 
-npm install && npm run build
-# 产物在 client/build/
-
-# 上传 build/ 到 Cloudflare Pages（支持拖拽上传或 Git 集成）
+sudo systemctl daemon-reload
+sudo systemctl enable --now qaweb
 ```
 
-配置 Cloudflare Pages：
-1. 进入 Cloudflare Dashboard → Workers & Pages → Create → Pages
-2. 上传 `client/build/` 目录或连接 Git 仓库
-3. 设置构建命令：`cd client && npm install && npm run build`
-4. 构建输出目录：`client/build`
-5. 环境变量：`VITE_API_BASE` = `https://your-server.com/api`，`VITE_WS_BASE` = `https://your-server.com`
+#### 步骤 2：构建前端
 
-> ⚠️ Cloudflare Pages 未绑域名则自带 `*.pages.dev` 域名，HTTPS 自带。后端若未配 HTTPS 则 WS 需用 `wss:` → 建议后端也配 SSL（Nginx 反代 + Let's Encrypt）。
+```bash
+cd QAweb/client
 
-### 方案三：单机 Nginx 反代
+# 同源部署，无需设置 API 地址（使用默认的相对路径 /api）
+npm install && npm run build
+# 产物在 client/build/
+```
+
+#### 步骤 3：配置 Nginx
+
+将 `client/build/` 放到服务器某个目录（如 `/var/www/qaweb/`），然后配置 Nginx：
+
+```bash
+sudo cp -r client/build/* /var/www/qaweb/
+```
 
 ```nginx
+# /etc/nginx/sites-available/qaweb
 server {
     listen 80;
-    server_name your-domain.com;
+    server_name your-domain.com;          # ← 改成你的域名或服务器 IP
 
     # 前端静态文件
-    root /path/to/QAweb/client/build;
+    root /var/www/qaweb;
     index index.html;
-    try_files $uri /index.html;
 
-    # API + WebSocket 反代到后端
-    location /api {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
+    # SPA 路由：所有非文件请求都返回 index.html
+    location / {
+        try_files $uri $uri/ /index.html;
     }
+
+    # API 请求转发给后端
+    location /api/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # WebSocket 转发给后端（聊天/答题实时通信）
     location /ws {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
     }
 }
 ```
 
-> 加上 SSL：`certbot --nginx -d your-domain.com`
+启用并重载：
 
-### 关键环境变量
+```bash
+sudo ln -s /etc/nginx/sites-available/qaweb /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `PORT` | `3000` | 后端端口 |
-| `JWT_SECRET` | `qaweb-dev-secret-...` | **生产必改**，JWT 签名密钥 |
-| `JWT_EXPIRES_IN` | `2h` | 登录有效期 |
-| `DB_PATH` | `./data/qaweb.db` | SQLite 文件路径 |
-| `VITE_API_BASE` | `/api` | 前端 API 地址（CDN分离部署时设绝对URL） |
-| `VITE_WS_BASE` | 同 origin | 前端 WebSocket 地址（CDN分离部署时设绝对URL） |
+#### 步骤 4：配置 HTTPS（强烈推荐）
+
+WebSocket 在 HTTPS 下会自动升级为 `wss://`，安全且无中间人风险：
+
+```bash
+sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d your-domain.com
+```
+
+---
+
+### 方案三：CDN 分离部署（前端放 Cloudflare Pages）
+
+如果希望前端走 CDN 加速、后端单独部署，需要让前端知道后端的地址。
+
+#### 架构示意
+
+```
+浏览器 ──→ Cloudflare Pages (前端静态文件，全球 CDN)
+         ──→ 你的服务器 (后端 API + WebSocket)
+```
+
+#### 步骤 1：部署后端
+
+同方案二的步骤 1，在服务器上启动后端进程。记下后端地址，如 `https://api.your-domain.com` 或 `http://12.34.56.78:3000`。
+
+> 如果后端没有域名只有 IP，且没有配置 HTTPS，WebSocket 只能用 `ws://`。但 Cloudflare Pages 是 HTTPS，浏览器会阻止 HTTPS 页面发起 `ws://` 连接。**建议后端务必配 HTTPS + 域名**。
+
+#### 步骤 2：构建前端（指定后端地址）
+
+```bash
+cd QAweb/client
+npm install
+
+# 创建环境变量文件，告诉前端后端地址
+cat > .env.production << 'EOF'
+VITE_API_BASE=https://api.your-domain.com/api
+VITE_WS_BASE=https://api.your-domain.com
+EOF
+
+npm run build
+# 产物在 client/build/
+```
+
+> `VITE_API_BASE` 和 `VITE_WS_BASE` 在构建时被硬编码进 JS 文件，浏览器直接用这些地址访问后端。
+
+#### 步骤 3：上传到 Cloudflare Pages
+
+方式 A — 手动上传（最快测试）：
+1. 打开 [Cloudflare Dashboard](https://dash.cloudflare.com/) → Workers & Pages
+2. Create → Pages → Upload assets
+3. 项目名填写 `qaweb`，上传 `client/build/` 整个目录
+4. 部署完成，获得 `qaweb-xxx.pages.dev` 地址
+
+方式 B — Git 集成（自动部署）：
+1. Fork 本项目到 GitHub
+2. Cloudflare Pages → Create → Connect to Git
+3. 构建设置：
+   - Build command: `cd client && npm install && npm run build`
+   - Output directory: `client/build`
+   - Environment variables: `VITE_API_BASE` 和 `VITE_WS_BASE`
+
+---
+
+### 环境变量速查
+
+| 变量 | 位置 | 默认值 | 说明 |
+|------|------|--------|------|
+| `PORT` | 后端 | `3000` | 后端监听端口 |
+| `JWT_SECRET` | 后端 | 开发密钥 | **生产必改**，用于签发登录令牌 |
+| `JWT_EXPIRES_IN` | 后端 | `2h` | 登录有效期，超时需重新登录 |
+| `DB_PATH` | 后端 | `./data/qaweb.db` | SQLite 数据库路径 |
+| `VITE_API_BASE` | 前端构建时 | `/api` | 后端 API 地址（CDN分离时填完整URL） |
+| `VITE_WS_BASE` | 前端构建时 | 空(同源) | 后端 WebSocket 地址（CDN分离时填完整URL） |
