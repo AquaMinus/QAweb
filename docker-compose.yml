@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  qaweb-server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: qaweb-server
+    ports:
+      - "3000:3000"
+    volumes:
+      - qaweb-data:/app/data
+    environment:
+      - PORT=3000
+      - JWT_SECRET=${JWT_SECRET:-change-me-to-a-random-string}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-2h}
+      - DB_PATH=/app/data/qaweb.db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  qaweb-data:

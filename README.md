@@ -79,3 +79,121 @@ QAweb/
 - **房间持久化**：游戏结束后自动保存排行榜 + 每题作答统计到数据库
 - **历史记录**：主持人可查看往期游戏结果、每题答题分布，并导出 Excel（3 Sheet：玩家排名 / 每题统计 / 答题明细）
 - **JWT 2h 过期**：登录 2 小时后需重新登录
+
+## 部署指南
+
+### 方案一：Docker 一键部署（推荐）
+
+前后端同源部署，适合快速上线：
+
+```bash
+# 1. 克隆项目
+git clone https://github.com/AquaMinus/QAweb.git && cd QAweb
+
+# 2. 设置环境变量（可选，不设使用默认值）
+export JWT_SECRET="your-random-secret-string"
+
+# 3. 构建前端静态文件
+cd client && npm install && npm run build
+# 构建产物：client/build/
+
+# 4. Docker Compose 启动后端
+cd .. && docker compose up -d
+
+# 5. 将前端静态文件也挂到后端 Hono 上，或使用 Nginx 反代
+#    后端运行在 http://your-server:3000
+#    前端 build/ 目录可放到任意静态文件服务器
+```
+
+**纯 Docker（不带 compose）：**
+
+```bash
+cd server
+docker build -t qaweb-server .
+docker run -d -p 3000:3000 \
+  -v qaweb-data:/app/data \
+  -e JWT_SECRET="your-random-secret" \
+  qaweb-server
+```
+
+### 方案二：前后端分离 + CDN
+
+前端放 Cloudflare Pages / Vercel，后端放轻量云服务器：
+
+**后端部署（任选一台 Linux 服务器）：**
+
+```bash
+# 服务器上
+git clone https://github.com/AquaMinus/QAweb.git && cd QAweb/server
+npm install
+export JWT_SECRET="production-random-secret"
+export PORT=3000
+npm run db:migrate
+npx tsx src/index.ts &
+# 用 systemd 或 pm2 管理进程更佳
+```
+
+**前端部署到 Cloudflare Pages：**
+
+```bash
+cd client
+
+# 创建 .env.production
+cat > .env.production << EOF
+VITE_API_BASE=https://your-server.com/api
+VITE_WS_BASE=https://your-server.com
+EOF
+
+npm install && npm run build
+# 产物在 client/build/
+
+# 上传 build/ 到 Cloudflare Pages（支持拖拽上传或 Git 集成）
+```
+
+配置 Cloudflare Pages：
+1. 进入 Cloudflare Dashboard → Workers & Pages → Create → Pages
+2. 上传 `client/build/` 目录或连接 Git 仓库
+3. 设置构建命令：`cd client && npm install && npm run build`
+4. 构建输出目录：`client/build`
+5. 环境变量：`VITE_API_BASE` = `https://your-server.com/api`，`VITE_WS_BASE` = `https://your-server.com`
+
+> ⚠️ Cloudflare Pages 未绑域名则自带 `*.pages.dev` 域名，HTTPS 自带。后端若未配 HTTPS 则 WS 需用 `wss:` → 建议后端也配 SSL（Nginx 反代 + Let's Encrypt）。
+
+### 方案三：单机 Nginx 反代
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    # 前端静态文件
+    root /path/to/QAweb/client/build;
+    index index.html;
+    try_files $uri /index.html;
+
+    # API + WebSocket 反代到后端
+    location /api {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+    }
+    location /ws {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
+
+> 加上 SSL：`certbot --nginx -d your-domain.com`
+
+### 关键环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `PORT` | `3000` | 后端端口 |
+| `JWT_SECRET` | `qaweb-dev-secret-...` | **生产必改**，JWT 签名密钥 |
+| `JWT_EXPIRES_IN` | `2h` | 登录有效期 |
+| `DB_PATH` | `./data/qaweb.db` | SQLite 文件路径 |
+| `VITE_API_BASE` | `/api` | 前端 API 地址（CDN分离部署时设绝对URL） |
+| `VITE_WS_BASE` | 同 origin | 前端 WebSocket 地址（CDN分离部署时设绝对URL） |

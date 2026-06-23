@@ -1,7 +1,10 @@
 import { browser } from '$app/environment';
 import type { AuthResponse, HostInfo } from './types';
 
-const BASE = '/api';
+// Configurable API base URL
+// Dev: proxied by Vite (/api → localhost:3000)
+// Production: set VITE_API_BASE=https://your-server.com/api at build time
+const API_BASE = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE) || '/api';
 
 let authToken: string | null = null;
 
@@ -46,7 +49,7 @@ async function request<T>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
@@ -172,5 +175,5 @@ export const roomsApi = {
     request<any>('GET', `/rooms/history/${gameRoomId}`),
 
   getExportUrl: (gameRoomId: string) =>
-    `/api/rooms/history/${gameRoomId}/export`,
+    `${API_BASE}/rooms/history/${gameRoomId}/export`,
 };

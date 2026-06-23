@@ -63,12 +63,14 @@ export function connect(pin: string, extraParams: Record<string, string> = {}): 
   state.intentionalClose = false;
   const token = getSessionToken();
 
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host;
+  // Determine WebSocket URL: use WS_BASE env var if set, else derive from current origin
+  const wsBase = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_WS_BASE) || '';
+  const protocol = wsBase ? (wsBase.startsWith('https') ? 'wss:' : 'ws:') : (window.location.protocol === 'https:' ? 'wss:' : 'ws:');
+  const wsHost = wsBase ? new URL(wsBase).host : window.location.host;
   // If extraParams has 'cred', use it as the token (for host auth); otherwise use session UUID
   const effectiveToken = extraParams.cred || token;
   delete extraParams.cred;
-  let url = `${protocol}//${host}/ws?token=${encodeURIComponent(effectiveToken)}&pin=${encodeURIComponent(pin)}`;
+  let url = `${protocol}//${wsHost}/ws?token=${encodeURIComponent(effectiveToken)}&pin=${encodeURIComponent(pin)}`;
   for (const [k, v] of Object.entries(extraParams)) {
     url += `&${encodeURIComponent(k)}=${encodeURIComponent(v)}`;
   }
