@@ -13,6 +13,7 @@
   let showCreate = $state(false);
   let newTitle = $state('');
   let newDesc = $state('');
+  let exportOpen = $state<string | null>(null);
 
   onMount(() => {
     if (!auth.isLoggedIn) { goto('/host/login'); return; }
@@ -132,8 +133,36 @@
             <div class="flex gap-1">
               <button onclick={() => handleShare(set.id)} title="分享"
                 class="p-2 text-gray-500 hover:text-indigo-400 transition-colors cursor-pointer text-sm">🔗</button>
-              <button onclick={() => handleExport(set.id, 'json')} title="导出JSON"
-                class="p-2 text-gray-500 hover:text-indigo-400 transition-colors cursor-pointer text-sm">📥</button>
+              <!-- Export dropdown -->
+              <div class="relative"
+                onmouseenter={() => exportOpen = set.id}
+                onmouseleave={() => { setTimeout(() => { if (exportOpen === set.id) exportOpen = null; }, 200); }}
+              >
+                <button title="导出"
+                  class="p-2 text-gray-500 hover:text-indigo-400 transition-colors cursor-pointer text-sm">📥</button>
+                <div
+                  class={[
+                    'absolute right-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 py-1 min-w-[120px]',
+                    'transition-all duration-200 ease-out',
+                    exportOpen === set.id ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto' : 'opacity-0 scale-95 -translate-y-1 pointer-events-none',
+                  ]}
+                  onmouseenter={() => exportOpen = set.id}
+                  onmouseleave={() => exportOpen = null}
+                >
+                  <button
+                    onclick={() => { handleExport(set.id, 'json'); exportOpen = null; }}
+                    class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors cursor-pointer"
+                  >
+                    📄 导出 JSON
+                  </button>
+                  <button
+                    onclick={() => { handleExport(set.id, 'csv'); exportOpen = null; }}
+                    class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors cursor-pointer"
+                  >
+                    📊 导出 CSV
+                  </button>
+                </div>
+              </div>
               <button onclick={() => handleCopy(set.id)} title="复制"
                 class="p-2 text-gray-500 hover:text-indigo-400 transition-colors cursor-pointer text-sm">📋</button>
               <button onclick={() => handleDelete(set.id, set.title)} title="删除"

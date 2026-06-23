@@ -20,6 +20,16 @@ export function handleMessage(
     switch (msg.type) {
       // ── Player Messages ──
 
+      // ── Clock sync: client initiates, server echoes back ──
+      case 'sync:ping': {
+        const p = msg.payload as { clientTime?: number };
+        ws.send(stringify(createMessage('sync:pong', {
+          serverTime: Date.now(),
+          clientTime: p?.clientTime || 0,
+        })));
+        return;
+      }
+
       case 'player:join': {
         const payload = msg.payload as { pin?: string; name?: string };
         const name = payload?.name?.trim();
@@ -73,9 +83,9 @@ export function handleMessage(
       }
 
       case 'player:answer': {
-        const payload = msg.payload as { questionId?: string; optionId?: string };
+        const payload = msg.payload as { questionId?: string; optionId?: string; clientTime?: number };
         if (payload?.optionId) {
-          engine.submitAnswer(pin, sessionToken, payload.optionId);
+          engine.submitAnswer(pin, sessionToken, payload.optionId, payload.clientTime);
         }
         return;
       }

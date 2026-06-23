@@ -53,7 +53,7 @@
     </div>
 
     <!-- Quick Actions -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
       <button
         onclick={() => goto('/host/room/create')}
         class="p-6 rounded-2xl bg-[var(--color-surface)] border border-gray-700 hover:border-indigo-500 transition-all text-left group cursor-pointer"
@@ -70,6 +70,15 @@
         <div class="text-2xl mb-2">📚</div>
         <h3 class="text-lg font-semibold text-white group-hover:text-indigo-400">管理题库</h3>
         <p class="text-gray-400 text-sm mt-1">创建、编辑、导入导出题目</p>
+      </button>
+
+      <button
+        onclick={() => goto('/host/history')}
+        class="p-6 rounded-2xl bg-[var(--color-surface)] border border-gray-700 hover:border-indigo-500 transition-all text-left group cursor-pointer"
+      >
+        <div class="text-2xl mb-2">📊</div>
+        <h3 class="text-lg font-semibold text-white group-hover:text-indigo-400">历史记录</h3>
+        <p class="text-gray-400 text-sm mt-1">查看往期游戏结果和统计</p>
       </button>
     </div>
 

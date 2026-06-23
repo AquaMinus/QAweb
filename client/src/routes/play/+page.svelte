@@ -1,5 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
+  import { onMount } from 'svelte';
   import { player } from '$lib/stores/player.svelte';
   import { roomsApi, ApiError } from '$lib/api';
   import Button from '$components/shared/Button.svelte';
@@ -9,6 +11,19 @@
   let name = $state('');
   let error = $state('');
   let loading = $state(false);
+
+  // Auto-fill PIN from URL query parameter
+  onMount(() => {
+    const qp = $page.url.searchParams.get('pin');
+    if (qp && /^\d{6}$/.test(qp)) {
+      pin = qp;
+      // Focus on name field after a short delay
+      setTimeout(() => {
+        const nameInput = document.getElementById('name') as HTMLInputElement;
+        if (nameInput) nameInput.focus();
+      }, 100);
+    }
+  });
 
   async function handleJoin(e: SubmitEvent) {
     e.preventDefault();

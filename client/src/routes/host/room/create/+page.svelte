@@ -15,6 +15,7 @@
   let scoringMode = $state<'fixed' | 'time_decay'>('fixed');
   let advanceMode = $state<'manual' | 'auto'>('manual');
   let autoDelay = $state(5);
+  let showQuestionText = $state(false);
   let creating = $state(false);
 
   onMount(async () => {
@@ -37,6 +38,7 @@
           scoringMode,
           advanceMode,
           autoAdvanceDelayMs: autoDelay * 1000,
+          showQuestionText,
         },
       });
       goto(`/host/room/${res.room.pin}`);
@@ -120,6 +122,22 @@
           {#if advanceMode === 'auto'}
             <p class="text-gray-500 text-xs mt-2">每题结果展示 {autoDelay} 秒后自动下一题</p>
           {/if}
+        </div>
+
+        <!-- Show question text on player screens -->
+        <div>
+          <label class="block text-sm text-gray-400 mb-2">玩家端显示</label>
+          <div class="flex gap-2">
+            <button onclick={() => showQuestionText = false}
+              class={['px-4 py-2 rounded-xl text-sm font-medium transition-colors cursor-pointer',
+                !showQuestionText ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
+              ]}>仅颜色按钮</button>
+            <button onclick={() => showQuestionText = true}
+              class={['px-4 py-2 rounded-xl text-sm font-medium transition-colors cursor-pointer',
+                showQuestionText ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
+              ]}>显示题干+选项</button>
+          </div>
+          <p class="text-gray-500 text-xs mt-2">开启后玩家手机端可看到题目内容，无需看大屏</p>
         </div>
 
         <!-- Duration estimate -->

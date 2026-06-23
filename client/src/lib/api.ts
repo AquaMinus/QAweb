@@ -75,11 +75,11 @@ export class ApiError extends Error {
 
 // ── Auth API ──
 export const authApi = {
-  register: (email: string, password: string, displayName: string) =>
-    request<AuthResponse>('POST', '/auth/register', { email, password, displayName }),
+  register: (username: string, password: string, displayName?: string, email?: string) =>
+    request<AuthResponse>('POST', '/auth/register', { username, password, displayName, email }),
 
-  login: (email: string, password: string) =>
-    request<AuthResponse>('POST', '/auth/login', { email, password }),
+  login: (username: string, password: string) =>
+    request<AuthResponse>('POST', '/auth/login', { username, password }),
 
   getMe: () =>
     request<{ host: HostInfo }>('GET', '/auth/me'),
@@ -91,7 +91,7 @@ export const authApi = {
     request<{ success: boolean }>('POST', '/auth/change-password', { oldPassword, newPassword }),
 
   forgotPassword: (email: string) =>
-    request<{ success: boolean; message: string }>('POST', '/auth/forgot-password', { email }),
+    request<{ success: boolean; message: string }>('POST', '/auth/forgot-password', { email }),  // accepts username or email
 
   resetPassword: (token: string, newPassword: string) =>
     request<{ success: boolean }>('POST', '/auth/reset-password', { token, newPassword }),
@@ -164,4 +164,13 @@ export const roomsApi = {
 
   kickPlayer: (pin: string, sessionToken: string) =>
     request<any>('POST', `/rooms/${pin}/kick/${sessionToken}`),
+
+  getHistory: () =>
+    request<{ rooms: any[] }>('GET', '/rooms/history'),
+
+  getHistoryDetail: (gameRoomId: string) =>
+    request<any>('GET', `/rooms/history/${gameRoomId}`),
+
+  getExportUrl: (gameRoomId: string) =>
+    `/api/rooms/history/${gameRoomId}/export`,
 };

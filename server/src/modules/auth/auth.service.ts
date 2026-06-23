@@ -4,37 +4,60 @@ import { db } from '../../db/connection.js';
 
 const { hashSync, compareSync } = bcrypt;
 import { hosts, passwordResetTokens } from '../../db/schema.js';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, or } from 'drizzle-orm';
 import type { HostInfo } from '../../shared/types.js';
 
 const BCRYPT_ROUNDS = 12;
 
 // ── Registration ──
-export function registerHost(email: string, password: string, displayName: string): HostInfo {
-  const existing = db.select({ id: hosts.id }).from(hosts).where(eq(hosts.email, email)).get();
+export function registerHost(username: string, password: string, email?: string, displayName?: string): HostInfo {
+  const trimmedUsername = username.trim();
+  const trimmedEmail = email?.toLowerCase()?.trim() || '';
+  const trimmedDisplayName = displayName?.trim() || trimmedUsername;
+
+  // Check username uniqueness
+  const existing = db.select({ id: hosts.id }).from(hosts).where(eq(hosts.username, trimmedUsername)).get();
   if (existing) {
-    throw new Error('EMAIL_TAKEN');
+    throw new Error('USERNAME_TAKEN');
+  }
+
+  // Check email uniqueness if provided
+  if (trimmedEmail) {
+    const emailExist = db.select({ id: hosts.id }).from(hosts).where(eq(hosts.email, trimmedEmail)).get();
+    if (emailExist) {
+      throw new Error('EMAIL_TAKEN');
+    }
   }
 
   const id = uuidv4();
   const now = Date.now();
   const passwordHash = hashSync(password, BCRYPT_ROUNDS);
 
+  // Use unique placeholder for empty email to avoid UNIQUE constraint violations
+  const finalEmail = trimmedEmail || `_noemail_${id}`;
+
   db.insert(hosts).values({
     id,
-    email: email.toLowerCase().trim(),
+    username: trimmedUsername,
+    email: finalEmail,
     passwordHash,
-    displayName: displayName.trim(),
+    displayName: trimmedDisplayName,
     createdAt: now,
     updatedAt: now,
   }).run();
 
-  return { id, email: email.toLowerCase().trim(), displayName: displayName.trim() };
+  return { id, username: trimmedUsername, email: trimmedEmail, displayName: trimmedDisplayName };
 }
 
-// ── Login ──
-export function loginHost(email: string, password: string): HostInfo {
-  const host = db.select().from(hosts).where(eq(hosts.email, email.toLowerCase().trim())).get();
+// ── Login ── (supports both username and email)
+export function loginHost(login: string, password: string): HostInfo {
+  const trimmedLogin = login.toLowerCase().trim();
+
+  // Try username first, then email
+  let host = db.select().from(hosts).where(eq(hosts.username, trimmedLogin)).get();
+  if (!host) {
+    host = db.select().from(hosts).where(eq(hosts.email, trimmedLogin)).get();
+  }
   if (!host) {
     throw new Error('INVALID_CREDENTIALS');
   }
@@ -45,6 +68,7 @@ export function loginHost(email: string, password: string): HostInfo {
 
   return {
     id: host.id,
+    username: host.username,
     email: host.email,
     displayName: host.displayName,
   };
@@ -54,7 +78,7 @@ export function loginHost(email: string, password: string): HostInfo {
 export function getHostById(id: string): HostInfo | null {
   const host = db.select().from(hosts).where(eq(hosts.id, id)).get();
   if (!host) return null;
-  return { id: host.id, email: host.email, displayName: host.displayName };
+  return { id: host.id, username: host.username, email: host.email, displayName: host.displayName };
 }
 
 export function updateDisplayName(id: string, displayName: string): HostInfo {
@@ -79,10 +103,16 @@ export function changePassword(id: string, oldPassword: string, newPassword: str
     .run();
 }
 
-// ── Password Reset ──
-export function createPasswordResetToken(email: string): string | null {
-  const host = db.select({ id: hosts.id }).from(hosts).where(eq(hosts.email, email.toLowerCase().trim())).get();
-  if (!host) return null; // Don't reveal if email exists
+// ── Password Reset ── (supports both username and email)
+export function createPasswordResetToken(login: string): string | null {
+  const trimmedLogin = login.toLowerCase().trim();
+
+  // Try username first, then email
+  let host = db.select({ id: hosts.id }).from(hosts).where(eq(hosts.username, trimmedLogin)).get();
+  if (!host) {
+    host = db.select({ id: hosts.id }).from(hosts).where(eq(hosts.email, trimmedLogin)).get();
+  }
+  if (!host) return null; // Don't reveal if user exists
 
   const token = uuidv4();
   const now = Date.now();

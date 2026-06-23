@@ -5,7 +5,7 @@
   import Button from '$components/shared/Button.svelte';
   import Spinner from '$components/shared/Spinner.svelte';
 
-  let email = $state('');
+  let username = $state('');
   let password = $state('');
   let error = $state('');
   let loading = $state(false);
@@ -16,7 +16,7 @@
     loading = true;
 
     try {
-      const res = await authApi.login(email, password);
+      const res = await authApi.login(username, password);
       auth.setAuth(res.host, res.token);
       goto('/host/dashboard');
     } catch (err) {
@@ -39,15 +39,15 @@
     </a>
 
     <form onsubmit={handleSubmit} class="space-y-4">
-      <!-- Email -->
+      <!-- Username -->
       <div>
-        <label for="email" class="block text-sm text-gray-400 mb-1">邮箱</label>
+        <label for="username" class="block text-sm text-gray-400 mb-1">用户名</label>
         <input
-          id="email"
-          type="email"
-          bind:value={email}
+          id="username"
+          type="text"
+          bind:value={username}
           required
-          placeholder="your@email.com"
+          placeholder="请输入用户名或邮箱"
           class="w-full px-4 py-3 rounded-xl bg-[var(--color-surface)] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors"
         />
       </div>

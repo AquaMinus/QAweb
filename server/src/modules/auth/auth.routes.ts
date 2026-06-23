@@ -19,23 +19,26 @@ export const authRoutes = new Hono();
 // ── Register ──
 authRoutes.post('/register', async (c) => {
   try {
-    const { email, password, displayName } = await c.req.json();
-    if (!email || !password || !displayName) {
-      return c.json({ error: 'VALIDATION', message: 'Email, password, and display name are required' }, 400);
+    const { username, password, email, displayName } = await c.req.json();
+    if (!username || !password) {
+      return c.json({ error: 'VALIDATION', message: 'Username and password are required' }, 400);
     }
     if (password.length < 6) {
       return c.json({ error: 'VALIDATION', message: 'Password must be at least 6 characters' }, 400);
     }
 
-    const host = registerHost(email, password, displayName);
+    const host = registerHost(username, password, email, displayName);
     const token = await sign(
-      { sub: host.id, email: host.email, displayName: host.displayName, exp: expiresIn(config.jwtExpiresIn) },
+      { sub: host.id, username: host.username, email: host.email, displayName: host.displayName, exp: expiresIn(config.jwtExpiresIn) },
       config.jwtSecret,
       JWT_ALG,
     );
 
     return c.json({ host, token }, 201);
   } catch (err: any) {
+    if (err.message === 'USERNAME_TAKEN') {
+      return c.json({ error: 'USERNAME_TAKEN', message: 'This username is already registered' }, 409);
+    }
     if (err.message === 'EMAIL_TAKEN') {
       return c.json({ error: 'EMAIL_TAKEN', message: 'This email is already registered' }, 409);
     }
@@ -43,17 +46,17 @@ authRoutes.post('/register', async (c) => {
   }
 });
 
-// ── Login ──
+// ── Login ── (username-based, backward compatible with email)
 authRoutes.post('/login', async (c) => {
   try {
-    const { email, password } = await c.req.json();
-    if (!email || !password) {
-      return c.json({ error: 'VALIDATION', message: 'Email and password are required' }, 400);
+    const { username, password } = await c.req.json();
+    if (!username || !password) {
+      return c.json({ error: 'VALIDATION', message: 'Username and password are required' }, 400);
     }
 
-    const host = loginHost(email, password);
+    const host = loginHost(username, password);
     const token = await sign(
-      { sub: host.id, email: host.email, displayName: host.displayName, exp: expiresIn(config.jwtExpiresIn) },
+      { sub: host.id, username: host.username, email: host.email, displayName: host.displayName, exp: expiresIn(config.jwtExpiresIn) },
       config.jwtSecret,
       JWT_ALG,
     );
@@ -61,7 +64,7 @@ authRoutes.post('/login', async (c) => {
     return c.json({ host, token });
   } catch (err: any) {
     if (err.message === 'INVALID_CREDENTIALS') {
-      return c.json({ error: 'INVALID_CREDENTIALS', message: 'Invalid email or password' }, 401);
+      return c.json({ error: 'INVALID_CREDENTIALS', message: 'Invalid username or password' }, 401);
     }
     throw err;
   }
@@ -112,20 +115,19 @@ protectedRoutes.post('/change-password', async (c) => {
   }
 });
 
-// Request password reset
+// Request password reset (supports username or email)
 authRoutes.post('/forgot-password', async (c) => {
   const { email } = await c.req.json();
   if (!email) {
-    return c.json({ error: 'VALIDATION', message: 'Email is required' }, 400);
+    return c.json({ error: 'VALIDATION', message: 'Username or email is required' }, 400);
   }
 
   const token = createPasswordResetToken(email);
-  // Always return success to prevent email enumeration
-  // In production, send the token via email
+  // Always return success to prevent user enumeration
   if (token) {
     console.log(`[AUTH] Password reset token for ${email}: ${token}`);
   }
-  return c.json({ success: true, message: 'If the email exists, a reset link has been sent' });
+  return c.json({ success: true, message: 'If the account exists, a reset link has been sent' });
 });
 
 // Reset password with token

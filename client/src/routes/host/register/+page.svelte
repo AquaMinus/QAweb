@@ -5,8 +5,9 @@
   import Button from '$components/shared/Button.svelte';
   import Spinner from '$components/shared/Spinner.svelte';
 
-  let email = $state('');
+  let username = $state('');
   let displayName = $state('');
+  let email = $state('');
   let password = $state('');
   let confirmPassword = $state('');
   let error = $state('');
@@ -15,6 +16,12 @@
   async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
     error = '';
+
+    // Validate username
+    if (!username.trim()) {
+      error = '请输入用户名';
+      return;
+    }
 
     if (password !== confirmPassword) {
       error = '两次输入的密码不一致';
@@ -28,12 +35,16 @@
     loading = true;
 
     try {
-      const res = await authApi.register(email, password, displayName);
+      const displayNameToSend = displayName.trim() || username.trim();
+      const emailToSend = email.trim() || undefined;
+      const res = await authApi.register(username.trim(), password, displayNameToSend, emailToSend);
       auth.setAuth(res.host, res.token);
       goto('/host/dashboard');
     } catch (err) {
       if (err instanceof ApiError) {
-        if (err.code === 'EMAIL_TAKEN') {
+        if (err.code === 'USERNAME_TAKEN') {
+          error = '该用户名已被注册';
+        } else if (err.code === 'EMAIL_TAKEN') {
           error = '该邮箱已被注册';
         } else {
           error = err.message;
@@ -55,35 +66,47 @@
     </a>
 
     <form onsubmit={handleSubmit} class="space-y-4">
-      <!-- Display Name -->
+      <!-- Username (required) -->
       <div>
-        <label for="name" class="block text-sm text-gray-400 mb-1">昵称</label>
+        <label for="username" class="block text-sm text-gray-400 mb-1">用户名 <span class="text-red-400">*</span></label>
         <input
-          id="name"
+          id="username"
           type="text"
-          bind:value={displayName}
+          bind:value={username}
           required
-          placeholder="你的昵称"
+          placeholder="用于登录的用户名"
           class="w-full px-4 py-3 rounded-xl bg-[var(--color-surface)] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors"
         />
       </div>
 
-      <!-- Email -->
+      <!-- Display Name (optional) -->
       <div>
-        <label for="email" class="block text-sm text-gray-400 mb-1">邮箱</label>
+        <label for="name" class="block text-sm text-gray-400 mb-1">昵称 <span class="text-gray-500">(选填)</span></label>
+        <input
+          id="name"
+          type="text"
+          bind:value={displayName}
+          placeholder="不填则默认使用用户名"
+          class="w-full px-4 py-3 rounded-xl bg-[var(--color-surface)] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors"
+        />
+      </div>
+
+      <!-- Email (optional) -->
+      <div>
+        <label for="email" class="block text-sm text-gray-400 mb-1">邮箱 <span class="text-gray-500">(选填)</span></label>
         <input
           id="email"
-          type="email"
+          type="text"
           bind:value={email}
-          required
-          placeholder="your@email.com"
+          placeholder="选填，用于密码恢复"
+          autocomplete="email"
           class="w-full px-4 py-3 rounded-xl bg-[var(--color-surface)] border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors"
         />
       </div>
 
       <!-- Password -->
       <div>
-        <label for="password" class="block text-sm text-gray-400 mb-1">密码</label>
+        <label for="password" class="block text-sm text-gray-400 mb-1">密码 <span class="text-red-400">*</span></label>
         <input
           id="password"
           type="password"
@@ -96,7 +119,7 @@
 
       <!-- Confirm Password -->
       <div>
-        <label for="confirm" class="block text-sm text-gray-400 mb-1">确认密码</label>
+        <label for="confirm" class="block text-sm text-gray-400 mb-1">确认密码 <span class="text-red-400">*</span></label>
         <input
           id="confirm"
           type="password"

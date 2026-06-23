@@ -24,13 +24,16 @@ export async function authGuard(c: Context, next: Next) {
 
   try {
     const payload = await verify(token, config.jwtSecret, 'HS256');
-    if (!payload || typeof payload.sub !== 'string' || typeof payload.email !== 'string') {
+    // Require sub and at least username or email in the payload
+    if (!payload || typeof payload.sub !== 'string' ||
+        (typeof payload.username !== 'string' && typeof payload.email !== 'string')) {
       return c.json({ error: 'UNAUTHORIZED', message: 'Invalid token payload' }, 401);
     }
 
     c.set('host', {
       id: payload.sub,
-      email: payload.email as string,
+      username: (payload.username as string) || (payload.email as string) || '',
+      email: (payload.email as string) || '',
       displayName: (payload.displayName as string) || '',
     });
 

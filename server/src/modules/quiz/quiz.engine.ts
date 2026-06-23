@@ -9,6 +9,7 @@ import {
   sendToHost, sendToPlayer, broadcastToPlayers, broadcastToRoom,
 } from './quiz.broadcast.js';
 import { connectionManager } from '../../ws/connection-manager.js';
+import { saveGameRoom } from '../rooms/rooms.persistence.js';
 import config from '../../config.js';
 
 // ═══════════════════════════════════════════════════════
@@ -36,6 +37,7 @@ class QuizEngine {
     hostId: string,
     hostWs: ServerWebSocket | null,
     questionSetId: string,
+    questionSetTitle: string,
     questions: CachedQuestion[],
     settings: Partial<RoomSettings> = {},
   ): Room {
@@ -47,6 +49,7 @@ class QuizEngine {
       hostId,
       hostWs,
       questionSetId,
+      questionSetTitle,
       questions,
       currentQuestionIndex: -1,
       phase: 'lobby',
@@ -54,6 +57,7 @@ class QuizEngine {
       players: new Map(),
       playerOrder: [],
       locked: false,
+      gameStartedAt: 0,
       advanceMode: settings.advanceMode || 'manual',
       settings: {
         timeLimitSec: settings.timeLimitSec || config.defaultTimeLimitSec,
@@ -61,6 +65,7 @@ class QuizEngine {
         scoringMode: settings.scoringMode || 'fixed',
         advanceMode: settings.advanceMode || 'manual',
         autoAdvanceDelayMs: settings.autoAdvanceDelayMs || config.defaultAutoAdvanceMs,
+        showQuestionText: settings.showQuestionText || false,
       },
       createdAt: now,
       lastActivityAt: now,
@@ -122,6 +127,8 @@ class QuizEngine {
       totalScore: 0,
       streak: 0,
       disconnected: false,
+      clockOffset: 0,
+      clockLatency: 0,
     };
 
     room.players.set(sessionToken, player);
@@ -239,6 +246,7 @@ class QuizEngine {
       room.settings.advanceMode = advanceMode;
     }
 
+    room.gameStartedAt = Date.now();
     this.transitionTo(room, 'countdown');
   }
 
@@ -284,7 +292,7 @@ class QuizEngine {
 
   // ── Player Actions ──
 
-  submitAnswer(pin: string, sessionToken: string, optionId: string): void {
+  submitAnswer(pin: string, sessionToken: string, optionId: string, clientTime?: number): void {
     const room = this.rooms.get(pin);
     if (!room) return;
     if (room.phase !== 'question') return;
@@ -300,13 +308,45 @@ class QuizEngine {
     // Prevent duplicate answers
     if (player.answers.has(question.id)) return;
 
-    const answerTimeMs = Date.now() - room.answerPhaseStartedAt;
+    // ── Clock-synced answer time validation ──
+    const answerOpensAt = room.answerPhaseStartedAt;
+    const answerClosesAt = answerOpensAt + room.settings.timeLimitSec * 1000;
+    let answerTimeMs: number;
+
+    if (clientTime !== undefined && player.clockOffset !== undefined) {
+      // Convert client time to server time using the stored offset
+      const serverTime = clientTime - player.clockOffset;
+      const now = Date.now();
+
+      // Sanity check: serverTime must be within [not-too-far-past, now+latency]
+      if (serverTime > now + player.clockLatency + 500) {
+        console.log(`[Engine] Rejected: player=${player.name} serverTime=${serverTime} too far in future (now=${now})`);
+        return; // Impossibly ahead — clock manipulation or bug
+      }
+      if (serverTime < answerOpensAt - 2000) {
+        console.log(`[Engine] Rejected: player=${player.name} serverTime=${serverTime} before answer window opened at ${answerOpensAt}`);
+        return; // Answer before window opened
+      }
+
+      // Compute elapsed from the answer window start
+      answerTimeMs = Math.max(0, serverTime - answerOpensAt);
+    } else {
+      // Fallback: use server-side receive time (less accurate but always works)
+      answerTimeMs = Date.now() - answerOpensAt;
+    }
+
+    // Validate answer is within the time window
+    if (answerTimeMs > room.settings.timeLimitSec * 1000 + 500) {
+      console.log(`[Engine] Answer too late: ${answerTimeMs}ms (limit=${room.settings.timeLimitSec * 1000}ms)`);
+      return; // Too late — reject
+    }
+
     const option = question.options.find(o => o.id === optionId);
     const correct = option?.isCorrect ?? false;
     const timeLimitMs = room.settings.timeLimitSec * 1000;
     const score = correct ? calculateScore(answerTimeMs, timeLimitMs, room.settings.maxPoints, room.settings.scoringMode) : 0;
 
-    console.log(`[Engine] Answer: player=${player.name}, optionId=${optionId}, found=${!!option}, correct=${correct}, score=${score}`);
+    console.log(`[Engine] Answer: player=${player.name}, option=${optionId}, correct=${correct}, elapsed=${answerTimeMs}ms, score=${score}`);
 
     if (correct) {
       player.streak++;
@@ -355,6 +395,12 @@ class QuizEngine {
         break;
       case 'ended':
         broadcastToRoom(room, 'quiz:ended', {});
+        // Persist game results to database
+        try {
+          saveGameRoom(room);
+        } catch (err) {
+          console.error('[Engine] Failed to persist game results:', err);
+        }
         // Schedule room cleanup after 5 minutes
         setTimeout(() => this.destroyRoom(room.pin), 5 * 60 * 1000);
         break;
@@ -375,15 +421,24 @@ class QuizEngine {
     const question = room.questions[room.currentQuestionIndex];
     if (!question) return;
 
-    const totalTime = room.settings.timeLimitSec;
     const READING_SEC = 3;
-    const answerTime = totalTime - READING_SEC;
+    const READING_MS = READING_SEC * 1000;
+    const answerTime = room.settings.timeLimitSec;
+    const answerTimeMs = answerTime * 1000;
+    const now = Date.now();
+
+    // ── Absolute timestamps (single source of truth) ──
+    const readingEndsAt = now + READING_MS;        // When players can start answering
+    const answerEndsAt = readingEndsAt + answerTimeMs; // When answer window closes
 
     room.phase = 'question';
-    room.phaseEnteredAt = Date.now();
+    room.phaseEnteredAt = now;
     room.readingPhase = true;
 
-    // Send to host (full question with text)
+    // Build current leaderboard (scores before this question)
+    const rankings = this.buildLeaderboard(room);
+
+    // ── Send to HOST: question data + absolute reading end time ──
     sendToHost(room, 'quiz:question', {
       questionId: question.id,
       text: question.text,
@@ -393,38 +448,55 @@ class QuizEngine {
         text: o.text,
         color: o.color,
       })),
-      timeLimitSec: totalTime,
-      readingSec: READING_SEC,
+      readingEndsAt,                              // Absolute: when reading phase ends
+      answerEndsAt,                               // Absolute: when answer window closes
+      readingSec: READING_SEC,                    // Informational only
+      answerTimeSec: answerTime,                  // Informational only
       questionNumber: room.currentQuestionIndex + 1,
       totalQuestions: room.questions.length,
+      rankings,
     });
 
-    // Send to players — show question but mark as reading phase
+    // ── Send to PLAYERS ──
     const optionMap: Record<string, string> = {};
-    for (const o of question.options) optionMap[o.color] = o.id;
-    broadcastToPlayers(room, 'quiz:question_player', {
+    const optionTexts: Record<string, string> = {};
+    for (const o of question.options) {
+      optionMap[o.color] = o.id;
+      optionTexts[o.color] = o.text;
+    }
+    const playerPayload: any = {
       questionId: question.id,
       questionNumber: room.currentQuestionIndex + 1,
       totalQuestions: room.questions.length,
-      timeLimitSec: totalTime,
-      readingSec: READING_SEC,
       colors: question.options.map(o => o.color),
       colorOptionIds: optionMap,
-    });
+      readingEndsAt,
+      answerEndsAt,
+      readingSec: READING_SEC,
+      answerTimeSec: answerTime,
+    };
+    if (room.settings.showQuestionText) {
+      playerPayload.questionText = question.text;
+      playerPayload.optionTexts = optionTexts;
+    }
+    broadcastToPlayers(room, 'quiz:question_player', playerPayload);
 
-    // Start answer countdown after reading time
+    // ── Reading phase timer (server-side only for phase control) ──
     room.questionTimer = setTimeout(() => {
-      // Now answers are accepted — actual countdown begins
       room.readingPhase = false;
       room.answerPhaseStartedAt = Date.now();
-      broadcastToPlayers(room, 'quiz:answer_phase', {
-        timeLimitSec: answerTime,
+
+      // Tell EVERYONE (host + players) that answer phase has started
+      broadcastToRoom(room, 'quiz:answer_phase', {
+        answerEndsAt,
+        answerTimeSec: answerTime,
       });
+
       // Auto-reveal after answer time
       room.questionTimer = setTimeout(() => {
         this.revealResult(room);
-      }, answerTime * 1000);
-    }, READING_SEC * 1000);
+      }, answerTimeMs);
+    }, READING_MS);
   }
 
   private revealResult(room: Room): void {
@@ -457,11 +529,15 @@ class QuizEngine {
       }
     }
 
+    // Build updated rankings (scores after this question)
+    const resultRankings = this.buildLeaderboard(room);
+
     // Send to host
     sendToHost(room, 'quiz:result', {
       correctOptionId: correctOption.id,
       correctColor: correctOption.color,
       distribution,
+      rankings: resultRankings,
     });
 
     // Send to each player

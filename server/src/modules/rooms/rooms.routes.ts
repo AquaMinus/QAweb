@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { authGuard } from '../auth/auth.guard.js';
 import * as svc from './rooms.service.js';
 import { engine } from '../quiz/quiz.engine.js';
+import { getRoomHistory, getRoomDetail, exportRoomExcel } from './rooms.persistence.js';
 
 export const roomRoutes = new Hono();
 roomRoutes.use('*', authGuard);
@@ -38,6 +39,34 @@ roomRoutes.get('/mine', (c) => {
     createdAt: r!.createdAt,
   }));
   return c.json({ rooms });
+});
+
+// ── History routes (must be before /:pin to avoid conflict) ──
+
+// List game history
+roomRoutes.get('/history', (c) => {
+  const host = c.var.host;
+  const rooms = getRoomHistory(host.id);
+  return c.json({ rooms });
+});
+
+// Get single game detail
+roomRoutes.get('/history/:gameRoomId', (c) => {
+  const detail = getRoomDetail(c.req.param('gameRoomId'));
+  if (!detail) return c.json({ error: 'NOT_FOUND', message: '记录不存在' }, 404);
+  return c.json(detail);
+});
+
+// Export game to Excel
+roomRoutes.get('/history/:gameRoomId/export', (c) => {
+  const buf = exportRoomExcel(c.req.param('gameRoomId'));
+  if (!buf) return c.json({ error: 'NOT_FOUND', message: '记录不存在' }, 404);
+  return new Response(buf, {
+    headers: {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="qaweb-history-${c.req.param('gameRoomId').slice(0, 8)}.xlsx"`,
+    },
+  });
 });
 
 // Get room info (also used by players to check before joining)

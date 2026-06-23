@@ -8,6 +8,7 @@ export type AdvanceMode = 'manual' | 'auto';
 // ── Auth ──
 export interface HostInfo {
   id: string;
+  username: string;
   email: string;
   displayName: string;
 }
@@ -63,7 +64,11 @@ export interface PlayerQuestionPayload {
   questionNumber: number;
   totalQuestions: number;
   timeLimitSec: number;
+  readingSec: number;
   colors: OptionColor[];
+  colorOptionIds?: Record<string, string>;
+  questionText?: string;
+  optionTexts?: Record<string, string>;
 }
 
 export interface HostQuestionPayload {
@@ -72,8 +77,10 @@ export interface HostQuestionPayload {
   imageUrl?: string | null;
   options: { id: string; text: string; color: OptionColor }[];
   timeLimitSec: number;
+  readingSec: number;
   questionNumber: number;
   totalQuestions: number;
+  rankings?: LeaderboardEntry[];
 }
 
 export interface AnswerDistribution {
@@ -97,6 +104,7 @@ export interface HostResultPayload {
   correctOptionId: string;
   correctColor: OptionColor;
   distribution: AnswerDistribution;
+  rankings?: LeaderboardEntry[];
 }
 
 export interface LeaderboardEntry {

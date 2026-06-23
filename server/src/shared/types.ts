@@ -1,6 +1,7 @@
 // ── Auth ──
 export interface HostInfo {
   id: string;
+  username: string;
   email: string;
   displayName: string;
 }
@@ -66,7 +67,12 @@ export interface PlayerQuestionPayload {
   questionNumber: number;  // 1-based
   totalQuestions: number;
   timeLimitSec: number;
+  readingSec: number;
   colors: OptionColor[];   // e.g., ['red', 'blue', 'yellow', 'green']
+  colorOptionIds?: Record<string, string>; // color -> optionId mapping
+  // Optional: shown to players if room setting "showQuestionText" is enabled
+  questionText?: string;
+  optionTexts?: Record<string, string>; // color -> option text mapping
 }
 
 // Host-facing question (full info including text)
@@ -76,8 +82,10 @@ export interface HostQuestionPayload {
   imageUrl?: string | null;
   options: { id: string; text: string; color: OptionColor }[];
   timeLimitSec: number;
+  readingSec: number;
   questionNumber: number;
   totalQuestions: number;
+  rankings?: LeaderboardEntry[];
 }
 
 export interface AnswerDistribution {
@@ -92,6 +100,7 @@ export interface HostResultPayload {
   correctOptionId: string;
   correctColor: OptionColor;
   distribution: AnswerDistribution;
+  rankings?: LeaderboardEntry[];
 }
 
 export interface PlayerResultPayload {

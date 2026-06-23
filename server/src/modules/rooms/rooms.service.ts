@@ -40,7 +40,9 @@ export function createRoom(
     })),
   }));
 
-  const room = engine.createRoom(hostId, null, questionSetId, cachedQuestions, settings);
+  const setInfo = questionSvc.getSetById(questionSetId);
+  const title = setInfo?.title || '';
+  const room = engine.createRoom(hostId, null, questionSetId, title, cachedQuestions, settings);
   return roomToInfo(room);
 }
 

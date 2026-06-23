@@ -3,7 +3,8 @@ import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
 // ── Host accounts ──
 export const hosts = sqliteTable('hosts', {
   id: text('id').primaryKey(),           // UUID v4
-  email: text('email').notNull().unique(),
+  username: text('username').notNull().unique(),
+  email: text('email').notNull().default(''),  // optional, email-based login deprecated
   passwordHash: text('password_hash').notNull(),
   displayName: text('display_name').notNull(),
   createdAt: integer('created_at').notNull(),   // Unix ms
@@ -60,4 +61,49 @@ export const shareTokens = sqliteTable('share_tokens', {
   token: text('token').notNull().unique(),
   expiresAt: integer('expires_at').notNull(),
   createdAt: integer('created_at').notNull(),
+});
+
+// ── Game room history (persisted after game ends) ──
+export const gameRooms = sqliteTable('game_rooms', {
+  id: text('id').primaryKey(),
+  hostId: text('host_id').notNull().references(() => hosts.id, { onDelete: 'cascade' }),
+  questionSetId: text('question_set_id').notNull(),
+  questionSetTitle: text('question_set_title').notNull(),
+  pin: text('pin').notNull(),
+  settingsJson: text('settings_json').notNull(),
+  questionCount: integer('question_count').notNull(),
+  playerCount: integer('player_count').notNull(),
+  startedAt: integer('started_at').notNull(),
+  endedAt: integer('ended_at').notNull(),
+  createdAt: integer('created_at').notNull(),
+});
+
+// ── Player results per game ──
+export const gamePlayerResults = sqliteTable('game_player_results', {
+  id: text('id').primaryKey(),
+  gameRoomId: text('game_room_id').notNull().references(() => gameRooms.id, { onDelete: 'cascade' }),
+  playerName: text('player_name').notNull(),
+  sessionToken: text('session_token').notNull(),
+  totalScore: integer('total_score').notNull().default(0),
+  correctCount: integer('correct_count').notNull().default(0),
+  wrongCount: integer('wrong_count').notNull().default(0),
+  unansweredCount: integer('unanswered_count').notNull().default(0),
+  finalRank: integer('final_rank').notNull(),
+  maxStreak: integer('max_streak').notNull().default(0),
+});
+
+// ── Per-question answer records ──
+export const gameAnswerRecords = sqliteTable('game_answer_records', {
+  id: text('id').primaryKey(),
+  gameRoomId: text('game_room_id').notNull().references(() => gameRooms.id, { onDelete: 'cascade' }),
+  questionId: text('question_id').notNull(),
+  questionText: text('question_text').notNull(),
+  playerToken: text('player_token').notNull(),
+  playerName: text('player_name').notNull(),
+  optionId: text('option_id'),
+  optionText: text('option_text'),
+  optionColor: text('option_color'),
+  isCorrect: integer('is_correct').notNull().default(0),
+  scoreEarned: integer('score_earned').notNull().default(0),
+  answerTimeMs: integer('answer_time_ms'),
 });

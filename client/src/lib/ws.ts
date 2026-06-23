@@ -13,6 +13,8 @@ interface WSState {
   maxReconnectAttempts: number;
   reconnectDelayMs: number;
   intentionalClose: boolean;
+  clockOffset: number;
+  clockLatency: number;
 }
 
 const state: WSState = {
@@ -25,7 +27,19 @@ const state: WSState = {
   maxReconnectAttempts: 20,
   reconnectDelayMs: 1000,
   intentionalClose: false,
+  clockOffset: 0,
+  clockLatency: 0,
 };
+
+/** Get the estimated server time based on the clock offset. */
+export function getServerTime(): number {
+  return Date.now() - state.clockOffset;
+}
+
+/** Get the raw WebSocket instance (for clock sync, etc.). */
+export function getWs(): WebSocket | null {
+  return state.ws;
+}
 
 /** Get or create a session token stored in sessionStorage. */
 export function getSessionToken(): string {

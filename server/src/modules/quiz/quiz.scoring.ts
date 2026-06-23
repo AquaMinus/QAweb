@@ -1,11 +1,11 @@
 import type { ScoringMode } from './quiz.types.js';
 
 /**
- * Calculate the score for a single answer using the chosen scoring mode.
+ * Calculate the score for a single answer.
  *
  * - Fixed mode: always returns maxPoints for a correct answer.
- * - Time-decay mode: score decreases linearly from maxPoints to 25% of maxPoints
- *   based on how long the player took to answer.
+ * - Time-decay mode: score = round((1 - elapsedMs / (2 * totalTimeMs)) * maxPoints)
+ *   At 0ms → 100% points; at totalTimeMs (deadline) → 50% points; minimum 0.
  */
 export function calculateScore(
   answerTimeMs: number,
@@ -17,9 +17,9 @@ export function calculateScore(
     return maxPoints;
   }
 
-  // Time-decay: linear from maxPoints down to floor (25% of max)
-  const elapsedRatio = Math.min(answerTimeMs / timeLimitMs, 1.0);
+  // Time-decay: linear from 100% at 0ms down to 50% at deadline
+  // Formula: score = round((1 - elapsed / (2 * totalTime)) * maxPoints)
+  const elapsedRatio = Math.min(answerTimeMs / (2 * timeLimitMs), 1.0);
   const raw = Math.round(maxPoints * (1 - elapsedRatio));
-  const floor = Math.floor(maxPoints * 0.25);
-  return Math.max(raw, floor);
+  return Math.max(raw, 0);
 }

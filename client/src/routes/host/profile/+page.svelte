@@ -48,12 +48,24 @@
     <h1 class="text-2xl font-bold text-white mb-6">个人信息</h1>
 
     <form onsubmit={handleSave} class="space-y-4">
+      <!-- Username (read-only) -->
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">用户名</label>
+        <input
+          type="text"
+          value={auth.host?.username || ''}
+          disabled
+          class="w-full px-4 py-3 rounded-xl bg-gray-800/50 border border-gray-700 text-gray-500 cursor-not-allowed"
+        />
+        <p class="text-xs text-gray-600 mt-1">用户名不可修改，用于登录</p>
+      </div>
+
       <!-- Email (read-only) -->
       <div>
         <label class="block text-sm text-gray-400 mb-1">邮箱</label>
         <input
-          type="email"
-          value={auth.host?.email || ''}
+          type="text"
+          value={auth.host?.email || '未设置'}
           disabled
           class="w-full px-4 py-3 rounded-xl bg-gray-800/50 border border-gray-700 text-gray-500 cursor-not-allowed"
         />

@@ -2,11 +2,15 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { onMount, onDestroy } from 'svelte';
+  import { browser } from '$app/environment';
   import { auth } from '$lib/stores/auth.svelte';
   import { roomsApi, ApiError } from '$lib/api';
-  import { connect, disconnect, send, on } from '$lib/ws';
+  import { connect, disconnect, send, on, getWs } from '$lib/ws';
+  import { syncClock } from '$lib/clock';
+  import { startCountdown } from '$lib/timer';
   import type { HostQuestionPayload, HostResultPayload, LeaderboardEntry, PodiumPayload, AnswerDistribution, OptionColor } from '$lib/types';
   import Button from '$components/shared/Button.svelte';
+  import QRCode from 'qrcode';
 
   const COLORS: Record<OptionColor, string> = { red: 'bg-[var(--color-red)]', blue: 'bg-[var(--color-blue)]', yellow: 'bg-[var(--color-yellow)]', green: 'bg-[var(--color-green)]' };
   const COLOR_BG: Record<OptionColor, string> = { red: 'bg-red-600/20', blue: 'bg-blue-600/20', yellow: 'bg-yellow-600/20', green: 'bg-green-600/20' };
@@ -18,17 +22,40 @@
   let locked = $state(false);
   let connecting = $state(true);
 
+  // QR code
+  let qrDataUrl = $state('');
+  let joinUrl = $state('');
+  let copied = $state(false);
+
+  $effect(() => {
+    if (browser && pin) {
+      joinUrl = `${window.location.origin}/play?pin=${pin}`;
+      QRCode.toDataURL(joinUrl, { width: 200, margin: 2, color: { dark: '#000000', light: '#ffffff' } })
+        .then((url: string) => { qrDataUrl = url; })
+        .catch(() => {});
+    }
+  });
+
+  function copyUrl() {
+    if (!browser) return;
+    navigator.clipboard.writeText(joinUrl).then(() => {
+      copied = true;
+      setTimeout(() => copied = false, 2000);
+    });
+  }
+
   // Question state
   let question = $state<HostQuestionPayload | null>(null);
   let result = $state<HostResultPayload | null>(null);
   let rankings = $state<LeaderboardEntry[]>([]);
   let podium = $state<PodiumPayload | null>(null);
-  let countdownSec = $state(3);
-  let timeLimit = $state(20);
 
+  // ── rAF timer state (reactive, updated by rAF callback) ──
   let cleanupFns: (() => void)[] = [];
   let hostToken = $state('');
-  let timerIv: ReturnType<typeof setInterval> | null = null;
+  let stopRaf = $state<(() => void) | null>(null);
+  let displaySecs = $state(0);
+  let barPct = $state(100);
   let nextCountdown = $state(0);
   let nextTimer: ReturnType<typeof setInterval> | null = null;
   let advanceMode = $state<'manual' | 'auto'>('manual');
@@ -42,12 +69,18 @@
 
   onDestroy(() => {
     cleanupFns.forEach(f => f());
+    if (stopRaf) stopRaf();
     disconnect();
   });
 
   function connectHost() {
-    // Use connect with extraParams for host role; pass hostToken as the credential
     connect(pin, { role: 'host', cred: hostToken });
+
+    // Clock sync
+    const ws = getWs();
+    if (ws) {
+      syncClock(ws).catch(() => {});
+    }
 
     cleanupFns.push(on('room:host_bound', (msg: any) => {
       connecting = false;
@@ -57,12 +90,10 @@
       playerNames = p.playerNames || [];
       locked = p.locked || false;
       advanceMode = p.advanceMode || 'manual';
-      // Restore state if reconnecting mid-game
       if (p.question) question = p.question;
       if (p.result) result = p.result;
       if (p.rankings) rankings = p.rankings;
       if (p.podium) podium = p.podium;
-      if (p.questionNumber) timeLimit = 0; // Timer expired already
     }));
 
     cleanupFns.push(on('room:player_joined', (msg: any) => {
@@ -74,34 +105,53 @@
       playerCount = msg.payload.playerCount;
     }));
 
-    cleanupFns.push(on('quiz:countdown', (msg: any) => {
+    cleanupFns.push(on('quiz:countdown', () => {
       phase = 'countdown';
-      countdownSec = msg.payload.seconds;
-      const iv = setInterval(() => {
-        if (countdownSec > 1) countdownSec--;
-        else clearInterval(iv);
-      }, 1000);
     }));
 
+    // ── Question: enter READING phase (3s countdown using readingEndsAt) ──
     cleanupFns.push(on('quiz:question', (msg: any) => {
       question = msg.payload;
       result = null;
-      rankings = [];
-      timeLimit = msg.payload.timeLimitSec;
+      rankings = msg.payload.rankings || [];
+      const readEnd = msg.payload.readingEndsAt || 0;
+      const ansEnd = msg.payload.answerEndsAt || 0;
+      const totalMs = ansEnd - readEnd || 3000;
+
+      // Enter reading phase
+      phase = 'reading';
+
+      // Start rAF reading countdown: updates displaySecs+barPct reactively
+      if (stopRaf) stopRaf();
+      displaySecs = Math.ceil((readEnd - Date.now()) / 1000);
+      barPct = 100;
+      stopRaf = startCountdown(readEnd, totalMs, (secs, pct) => {
+        displaySecs = secs;
+        barPct = pct;
+      });
+    }));
+
+    // ── Answer phase: switch to question with answer countdown ──
+    cleanupFns.push(on('quiz:answer_phase', (msg: any) => {
       phase = 'question';
-      // Stable countdown — use 1s interval, server is source of truth
-      if (timerIv) clearInterval(timerIv);
-      const st = Date.now();
-      timerIv = setInterval(() => {
-        const remain = msg.payload.timeLimitSec - (Date.now() - st) / 1000;
-        timeLimit = Math.max(0, Math.round(remain));
-        if (timeLimit <= 0 && timerIv) { clearInterval(timerIv); timerIv = null; }
-      }, 500);
+
+      const ansEnd = msg.payload.answerEndsAt || 0;
+      const answerTimeMs = (msg.payload.answerTimeSec || 20) * 1000;
+
+      if (stopRaf) stopRaf();
+      displaySecs = Math.ceil((ansEnd - Date.now()) / 1000);
+      barPct = 100;
+      stopRaf = startCountdown(ansEnd, answerTimeMs, (secs, pct) => {
+        displaySecs = secs;
+        barPct = pct;
+      });
     }));
 
     cleanupFns.push(on('quiz:result', (msg: any) => {
       result = msg.payload;
+      rankings = msg.payload.rankings || [];
       phase = 'question_result';
+      if (stopRaf) { stopRaf(); stopRaf = null; }
     }));
 
     cleanupFns.push(on('quiz:next_countdown', (msg: any) => {
@@ -136,7 +186,7 @@
     }));
   }
 
-  function handleStart() { send('host:start', { advanceMode: 'manual' }); }
+  function handleStart() { send('host:start', { advanceMode }); }
   function handleReveal() { send('host:next'); }
   function handleNext(skip = false) { send('host:next', { skipLeaderboard: skip }); }
   function handleLockToggle() { locked = !locked; send('host:lock', { locked }); }
@@ -162,10 +212,29 @@
   {:else if phase === 'lobby'}
     <!-- ── LOBBY ── -->
     <div class="min-h-dvh flex flex-col items-center justify-center px-4 py-8">
-      <div class="text-center mb-8">
+      <div class="text-center mb-4">
         <p class="text-gray-400 text-sm mb-2">房间 PIN 码</p>
         <h1 class="text-7xl font-bold text-white tracking-widest font-mono">{pin}</h1>
       </div>
+
+      <!-- QR code and join URL -->
+      {#if qrDataUrl}
+        <div class="mb-6 flex flex-col items-center gap-3">
+          <div class="bg-white p-3 rounded-xl">
+            <img src={qrDataUrl} alt="QR code" class="w-48 h-48" />
+          </div>
+          <p class="text-gray-400 text-xs">扫码或访问链接加入游戏</p>
+          <div class="flex items-center gap-2">
+            <code class="text-indigo-400 text-sm bg-gray-800 px-3 py-1.5 rounded-lg max-w-xs truncate">{joinUrl}</code>
+            <button
+              onclick={copyUrl}
+              class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded-lg cursor-pointer transition-colors whitespace-nowrap"
+            >
+              {copied ? '✅ 已复制' : '📋 复制'}
+            </button>
+          </div>
+        </div>
+      {/if}
 
       <div class="flex items-center gap-4 mb-6">
         <div class="text-3xl font-bold text-indigo-400">{playerCount}</div>
@@ -195,38 +264,126 @@
     </div>
 
   {:else if phase === 'countdown'}
-    <!-- ── COUNTDOWN ── -->
+    <!-- ── COUNTDOWN (3-2-1 before game) ── -->
     <div class="min-h-dvh flex items-center justify-center">
-      <div class="text-9xl font-bold text-white animate-score-pop">{countdownSec > 0 ? countdownSec : '🎯'}</div>
+      <div class="text-9xl font-bold text-white animate-score-pop">🎯</div>
+    </div>
+
+  {:else if phase === 'reading' && question}
+    <!-- ── READING (3s countdown before answer phase) ── -->
+    <div class="min-h-dvh flex flex-col">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-gray-800">
+        <span class="text-gray-400 text-sm">题目 {question.questionNumber}/{question.totalQuestions}</span>
+        <span class="text-3xl font-bold font-mono text-yellow-400">{displaySecs}</span>
+        <div class="flex items-center gap-2">
+          <span class="text-yellow-400 text-sm">⏱ 审题中</span>
+          <button onclick={handleEnd} title="结束游戏"
+            class="px-3 py-1.5 text-xs rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/40 transition-colors cursor-pointer">⏹ 结束</button>
+        </div>
+      </div>
+
+      <!-- Question preview + leaderboard -->
+      <div class="flex-1 flex">
+        <div class="flex-[7] flex flex-col items-center justify-center px-6 py-4">
+          <h2 class="text-2xl font-bold text-white text-center mb-6">{question.text}</h2>
+          <div class="grid grid-cols-2 gap-3 w-full max-w-xl">
+            {#each question.options as opt}
+              <div class={['p-5 rounded-2xl flex items-center gap-3 text-base font-semibold text-white opacity-50', COLORS[opt.color]]}>
+                <span class="text-xl">{{ red: '▲', blue: '◆', yellow: '●', green: '■' }[opt.color]}</span>
+                <span>{opt.text}</span>
+              </div>
+            {/each}
+          </div>
+        </div>
+        <div class="flex-[3] border-l border-gray-800 bg-[var(--color-bg)]/50 p-4 flex flex-col">
+          <h3 class="text-sm font-semibold text-gray-400 mb-3">🏆 实时排名</h3>
+          {#if rankings.length > 0}
+            <div class="flex-1 overflow-y-auto space-y-1">
+              {#each rankings.slice(0, 10) as entry}
+                <div class={['flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm', entry.rank === 1 ? 'bg-yellow-500/10' : '']}>
+                  <span class={['font-bold w-6 text-center', entry.rank === 1 ? 'text-yellow-400' : entry.rank === 2 ? 'text-gray-300' : entry.rank === 3 ? 'text-amber-500' : 'text-gray-500']}>
+                    {entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : `#${entry.rank}`}
+                  </span>
+                  <span class="text-white truncate flex-1">{entry.name}</span>
+                  <span class="text-indigo-400 font-mono font-bold">{entry.score}</span>
+                </div>
+              {/each}
+            </div>
+          {:else}
+            <p class="text-gray-600 text-sm text-center py-8">暂无排名数据</p>
+          {/if}
+        </div>
+      </div>
     </div>
 
   {:else if phase === 'question' && question}
-    <!-- ── QUESTION ── -->
+    <!-- ── QUESTION (answer phase) ── -->
     <div class="min-h-dvh flex flex-col">
-      <div class="flex items-center justify-between px-6 py-4">
-        <span class="text-gray-400 text-sm">题目 {question.questionNumber}/{question.totalQuestions}</span>
-        <span class={['text-2xl font-bold font-mono', timeLimit <= 5 ? 'text-red-400' : 'text-white']}>{timeLimit}s</span>
-        {#if advanceMode === 'manual'}
-          <Button variant="secondary" onclick={handleReveal}>揭晓答案 →</Button>
-        {:else}
-          <span class="text-gray-500 text-sm">自动模式</span>
-        {/if}
+      <div class="flex items-center justify-between px-6 py-4 border-b border-gray-800">
+        <div class="flex items-center gap-3">
+          <span class="text-gray-400 text-sm">题目 {question.questionNumber}/{question.totalQuestions}</span>
+          <span class={['text-2xl font-bold font-mono', displaySecs <= 5 ? 'text-red-400' : 'text-white']}>{displaySecs}</span>
+          <div class="w-24 h-2 bg-gray-800 rounded-full overflow-hidden">
+            <div class="h-full bg-emerald-500 rounded-full transition-none" style="width:{barPct}%"></div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          {#if advanceMode === 'manual'}
+            <Button variant="secondary" onclick={handleReveal}>揭晓答案 →</Button>
+          {:else}
+            <span class="text-gray-500 text-sm mr-2">⏱ 自动播放</span>
+          {/if}
+          <button onclick={handleEnd} title="结束游戏"
+            class="px-3 py-1.5 text-xs rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/40 transition-colors cursor-pointer">⏹ 结束</button>
+        </div>
       </div>
 
-      <div class="flex-1 flex flex-col items-center justify-center px-8">
-        <h2 class="text-3xl font-bold text-white text-center mb-8">{question.text}</h2>
-        <div class="grid grid-cols-2 gap-4 w-full max-w-2xl">
-          {#each question.options as opt}
-            <div class={[
-              'p-6 rounded-2xl flex items-center gap-4 text-lg font-semibold text-white',
-              COLORS[opt.color],
-            ]}>
-              <span class="text-2xl">{{
-                red: '▲', blue: '◆', yellow: '●', green: '■',
-              }[opt.color]}</span>
-              <span>{opt.text}</span>
+      <!-- Split layout: question left + leaderboard right -->
+      <div class="flex-1 flex">
+        <!-- Left: Question + Options (70%) -->
+        <div class="flex-[7] flex flex-col items-center justify-center px-6 py-4">
+          <h2 class="text-2xl font-bold text-white text-center mb-6">{question.text}</h2>
+          <div class="grid grid-cols-2 gap-3 w-full max-w-xl">
+            {#each question.options as opt}
+              <div class={[
+                'p-5 rounded-2xl flex items-center gap-3 text-base font-semibold text-white',
+                COLORS[opt.color],
+              ]}>
+                <span class="text-xl">{{
+                  red: '▲', blue: '◆', yellow: '●', green: '■',
+                }[opt.color]}</span>
+                <span>{opt.text}</span>
+              </div>
+            {/each}
+          </div>
+        </div>
+
+        <!-- Right: Mini Leaderboard (30%) -->
+        <div class="flex-[3] border-l border-gray-800 bg-[var(--color-bg)]/50 p-4 flex flex-col">
+          <h3 class="text-sm font-semibold text-gray-400 mb-3 uppercase tracking-wide">🏆 实时排名</h3>
+          {#if rankings.length > 0}
+            <div class="flex-1 overflow-y-auto space-y-1">
+              {#each rankings.slice(0, 10) as entry}
+                <div class={[
+                  'flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm',
+                  entry.rank === 1 ? 'bg-yellow-500/10' : '',
+                ]}>
+                  <span class={[
+                    'font-bold w-6 text-center',
+                    entry.rank === 1 ? 'text-yellow-400' :
+                    entry.rank === 2 ? 'text-gray-300' :
+                    entry.rank === 3 ? 'text-amber-500' : 'text-gray-500',
+                  ]}>
+                    {entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : `#${entry.rank}`}
+                  </span>
+                  <span class="text-white truncate flex-1">{entry.name}</span>
+                  <span class="text-indigo-400 font-mono font-bold">{entry.score}</span>
+                </div>
+              {/each}
             </div>
-          {/each}
+          {:else}
+            <p class="text-gray-600 text-sm text-center py-8">暂无排名数据</p>
+          {/if}
         </div>
       </div>
     </div>
@@ -234,7 +391,7 @@
   {:else if phase === 'question_result' && result}
     <!-- ── RESULT ── -->
     <div class="min-h-dvh flex flex-col">
-      <div class="flex items-center justify-between px-6 py-4">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-gray-800">
         <span class="text-gray-400">答案揭晓</span>
         {#if advanceMode === 'auto'}
           {#if nextCountdown > 0}
@@ -247,25 +404,58 @@
           </div>
         {/if}
       </div>
-      <div class="flex-1 flex flex-col items-center justify-center px-8">
-        <div class={['w-24 h-24 rounded-2xl flex items-center justify-center text-4xl mb-6', COLORS[result.correctColor]]}>
-          ✓
+
+      <!-- Split layout: result left + leaderboard right -->
+      <div class="flex-1 flex">
+        <!-- Left: Answer + Distribution (70%) -->
+        <div class="flex-[7] flex flex-col items-center justify-center px-8">
+          <div class={['w-24 h-24 rounded-2xl flex items-center justify-center text-4xl mb-6', COLORS[result.correctColor]]}>
+            ✓
+          </div>
+          <!-- Bar chart -->
+          <div class="w-full max-w-md space-y-3">
+            {#each (['red', 'blue', 'yellow', 'green'] as OptionColor[]) as color}
+              {@const count = result.distribution[color]}
+              {@const pct = result.distribution.total > 0 ? (count / result.distribution.total) * 100 : 0}
+              <div class="flex items-center gap-3">
+                <div class={['w-12 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold', COLORS[color]]}>
+                  {count}
+                </div>
+                <div class="flex-1 h-8 bg-gray-800 rounded-lg overflow-hidden">
+                  <div class={['h-full rounded-lg transition-all duration-1000', COLORS[color]]} style="width: {pct}%"></div>
+                </div>
+                <span class="text-gray-500 text-xs w-10 text-right">{Math.round(pct)}%</span>
+              </div>
+            {/each}
+          </div>
         </div>
-        <!-- Bar chart -->
-        <div class="w-full max-w-md space-y-3">
-          {#each (['red', 'blue', 'yellow', 'green'] as OptionColor[]) as color}
-            {@const count = result.distribution[color]}
-            {@const pct = result.distribution.total > 0 ? (count / result.distribution.total) * 100 : 0}
-            <div class="flex items-center gap-3">
-              <div class={['w-12 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold', COLORS[color]]}>
-                {count}
-              </div>
-              <div class="flex-1 h-8 bg-gray-800 rounded-lg overflow-hidden">
-                <div class={['h-full rounded-lg transition-all duration-1000', COLORS[color]]} style="width: {pct}%"></div>
-              </div>
-              <span class="text-gray-500 text-xs w-10 text-right">{Math.round(pct)}%</span>
+
+        <!-- Right: Updated Leaderboard (30%) -->
+        <div class="flex-[3] border-l border-gray-800 bg-[var(--color-bg)]/50 p-4 flex flex-col">
+          <h3 class="text-sm font-semibold text-gray-400 mb-3 uppercase tracking-wide">🏆 当前排名</h3>
+          {#if rankings.length > 0}
+            <div class="flex-1 overflow-y-auto space-y-1">
+              {#each rankings.slice(0, 10) as entry}
+                <div class={[
+                  'flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm',
+                  entry.rank === 1 ? 'bg-yellow-500/10' : '',
+                ]}>
+                  <span class={[
+                    'font-bold w-6 text-center',
+                    entry.rank === 1 ? 'text-yellow-400' :
+                    entry.rank === 2 ? 'text-gray-300' :
+                    entry.rank === 3 ? 'text-amber-500' : 'text-gray-500',
+                  ]}>
+                    {entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : `#${entry.rank}`}
+                  </span>
+                  <span class="text-white truncate flex-1">{entry.name}</span>
+                  <span class="text-indigo-400 font-mono font-bold">{entry.score}</span>
+                </div>
+              {/each}
             </div>
-          {/each}
+          {:else}
+            <p class="text-gray-600 text-sm text-center py-8">暂无排名数据</p>
+          {/if}
         </div>
       </div>
     </div>

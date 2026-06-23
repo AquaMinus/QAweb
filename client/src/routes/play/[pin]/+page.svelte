@@ -3,7 +3,9 @@
   import { onMount, onDestroy } from 'svelte';
   import { player } from '$lib/stores/player.svelte';
   import { quiz } from '$lib/stores/quiz.svelte';
-  import { connect, disconnect, send, on, getSessionToken } from '$lib/ws';
+  import { connect, disconnect, send, on, getSessionToken, getWs } from '$lib/ws';
+  import { syncClock, getSyncedTime, toServerTime } from '$lib/clock';
+  import { startCountdown } from '$lib/timer';
   import type { PlayerQuestionPayload, PlayerResultPayload, PlayerLeaderboardPayload, PodiumPayload, OptionColor } from '$lib/types';
 
   const COLORS: Record<OptionColor, string> = { red: 'bg-[var(--color-red)]', blue: 'bg-[var(--color-blue)]', yellow: 'bg-[var(--color-yellow)]', green: 'bg-[var(--color-green)]' };
@@ -15,26 +17,31 @@
   let nextInSec = $state(0);
   let nextTimer: ReturnType<typeof setInterval> | null = null;
 
+  // ── rAF timer state ──
+  let stopRaf = $state<(() => void) | null>(null);
+  let displaySecs = $state(0);
+  let barPct = $state(100);
+
   onMount(() => {
     if (!player.isInRoom) { window.location.href = '/play'; return; }
 
     connect(pin);
+    // Clock sync
+    const ws = getWs();
+    if (ws) syncClock(ws).catch(() => {});
     wireMessages();
-    return () => cleanupFns.forEach(f => f());
+    return () => { cleanupFns.forEach(f => f()); if (stopRaf) stopRaf(); };
   });
 
-  onDestroy(() => cleanupFns.forEach(f => f()));
+  onDestroy(() => { cleanupFns.forEach(f => f()); if (stopRaf) stopRaf(); });
 
   let joinedToken = $state('');
 
   function wireMessages() {
-    // When WS opens, send join or reconnect
     cleanupFns.push(on('ws:open', () => {
       if (joinedToken) {
-        // Reconnecting — restore session
         send('player:reconnect', { pin, session_token: joinedToken });
       } else {
-        // First connection
         send('player:join', { pin, name: player.name });
       }
     }));
@@ -57,6 +64,7 @@
 
     cleanupFns.push(on('quiz:countdown', () => { quiz.phase = 'countdown'; }));
 
+    // ── Question: enter READING phase ──
     cleanupFns.push(on('quiz:question_player', (msg: any) => {
       const p = msg.payload as PlayerQuestionPayload;
       quiz.phase = 'question';
@@ -64,23 +72,39 @@
       quiz.hasAnswered = false;
       quiz.answerLocked = false;
       quiz.myAnswerId = null;
-      quiz.stopTimer();
-      // 3s reading time — buttons locked, show reading indicator
       readingMode = true;
-      quiz.timeLeft = (p as any).readingSec || 3;
-      const readIv = setInterval(() => {
-        if (quiz.timeLeft > 1) quiz.timeLeft--;
-        else { clearInterval(readIv); }
-      }, 1000);
-      // Clear next-question countdown
+
+      const readingEnd = msg.payload.readingEndsAt || 0;
+      const answerEnd = msg.payload.answerEndsAt || 0;
+      const totalMs = answerEnd - readingEnd || 3000;
+
+      if (stopRaf) stopRaf();
+      displaySecs = Math.ceil((readingEnd - Date.now()) / 1000);
+      barPct = 100;
+      stopRaf = startCountdown(readingEnd, totalMs, (secs, pct) => {
+        displaySecs = secs;
+        barPct = pct;
+      });
+
       if (nextTimer) { clearInterval(nextTimer); nextTimer = null; }
       nextInSec = 0;
     }));
 
+    // ── Answer phase starts ──
     cleanupFns.push(on('quiz:answer_phase', (msg: any) => {
       readingMode = false;
       quiz.answerLocked = false;
-      quiz.startQuestionTimer(msg.payload.timeLimitSec);
+
+      const answerEnd = msg.payload.answerEndsAt || 0;
+      const answerTimeMs = (msg.payload.answerTimeSec || 20) * 1000;
+
+      if (stopRaf) stopRaf();
+      displaySecs = Math.ceil((answerEnd - Date.now()) / 1000);
+      barPct = 100;
+      stopRaf = startCountdown(answerEnd, answerTimeMs, (secs, pct) => {
+        displaySecs = secs;
+        barPct = pct;
+      });
     }));
 
     cleanupFns.push(on('quiz:answer_accepted', () => { quiz.answerLocked = true; }));
@@ -88,7 +112,7 @@
     cleanupFns.push(on('quiz:result_player', (msg: any) => {
       quiz.phase = 'question_result';
       quiz.lastResult = msg.payload;
-      quiz.stopTimer();
+      if (stopRaf) { stopRaf(); stopRaf = null; }
     }));
 
     cleanupFns.push(on('quiz:next_countdown', (msg: any) => {
@@ -118,14 +142,14 @@
 
   function handleAnswer(color: OptionColor) {
     if (quiz.answerLocked || !quiz.currentQuestion) return;
-    // Get the real option ID from the server-provided color→ID map
     const optionId = (quiz.currentQuestion as any).colorOptionIds?.[color];
     if (!optionId) return;
-    // Lock immediately — no changing answers
     quiz.myAnswerId = optionId;
     quiz.hasAnswered = true;
     quiz.answerLocked = true;
-    send('player:answer', { questionId: quiz.currentQuestion.questionId, optionId });
+    // Send with estimated server-time of click
+    const clientTime = toServerTime(Date.now());
+    send('player:answer', { questionId: quiz.currentQuestion.questionId, optionId, clientTime });
   }
 </script>
 
@@ -151,33 +175,47 @@
   {:else if quiz.phase === 'question' && quiz.currentQuestion}
     <div class="min-h-dvh flex flex-col">
       {#if readingMode}
-        <!-- Reading phase: 3s to read question, cannot answer -->
+        <!-- Reading phase: rAF-driven countdown -->
         <div class="text-center py-6 bg-yellow-500/20">
-          <p class="text-yellow-400 text-lg font-bold">📖 审题中... {quiz.timeLeft}s</p>
-          <p class="text-yellow-400/60 text-sm mt-1">请阅读题目，倒计时结束后方可作答</p>
+          <p class="text-yellow-400 text-lg font-bold">
+            ⏱ <span class="font-mono">{displaySecs}</span>秒后开始答题
+          </p>
+          <p class="text-yellow-400/60 text-sm mt-1">请阅读题目</p>
         </div>
       {:else}
-        <div class="h-2 bg-gray-800">
-          <div class="h-full bg-emerald-500 transition-all duration-1000 ease-linear"
-            style="width: {(quiz.timeLeft / quiz.currentQuestion.timeLimitSec) * 100}%"></div>
+        <!-- Answer phase: rAF-driven countdown number + progress bar -->
+        <div class="flex items-center gap-3 px-3 py-2">
+          <span class={['text-xl font-bold font-mono w-8 text-right', displaySecs <= 5 ? 'text-red-400' : 'text-white']}>
+            {displaySecs}
+          </span>
+          <div class="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
+            <div class="h-full bg-emerald-500 rounded-full transition-none"
+              style="width:{barPct}%"></div>
+          </div>
         </div>
       {/if}
+
+      <!-- Question text (shown if room setting enabled) -->
+      {#if quiz.currentQuestion.questionText}
+        <div class="px-4 py-3 text-center">
+          <p class="text-white text-lg font-semibold">{quiz.currentQuestion.questionText}</p>
+        </div>
+      {/if}
+
       <div class="flex-1 grid grid-cols-2 gap-3 p-3">
         {#each quiz.currentQuestion.colors as color, i}
           <button onclick={() => handleAnswer(color)} disabled={quiz.answerLocked || readingMode}
-            class={['rounded-2xl flex items-center justify-center text-4xl font-bold transition-all cursor-pointer',
+            class={['rounded-2xl flex flex-col items-center justify-center gap-1 transition-all cursor-pointer',
               COLORS[color],
               (quiz.answerLocked || readingMode) ? 'opacity-30 scale-95' : 'active:scale-95 hover:brightness-110',
-              (quiz.myAnswerId && quiz.currentQuestion) ? 'ring-4 ring-white scale-95' : '',
+              (quiz.myAnswerId === quiz.currentQuestion?.colorOptionIds?.[color]) ? 'ring-4 ring-white scale-95' : '',
             ]}>
-            <div class="text-center">
-              <span class="block text-5xl mb-1">{{
-                red: '🔴', blue: '🔵', yellow: '🟡', green: '🟢'
-              }[color]}</span>
-              <span class="block text-white/70 text-sm">{{
-                red: '▲', blue: '◆', yellow: '●', green: '■'
-              }[color]}</span>
-            </div>
+            <span class="text-4xl">{{
+              red: '🔴', blue: '🔵', yellow: '🟡', green: '🟢'
+            }[color]}</span>
+            {#if quiz.currentQuestion?.optionTexts?.[color]}
+              <span class="text-white/80 text-xs px-1">{quiz.currentQuestion.optionTexts[color]}</span>
+            {/if}
           </button>
         {/each}
       </div>
@@ -197,9 +235,14 @@
         <p class="text-lg text-white/70">本题得分</p>
         <p class="text-5xl font-bold text-white">+{quiz.lastResult.scoreEarned}</p>
       </div>
-      <p class="mt-4 text-white/60 text-sm">总分：{quiz.lastResult.totalScore} {#if quiz.lastResult.streak > 1}· 🔥 {quiz.lastResult.streak}连击{/if}</p>
+      <div class="mt-4 text-white/60">
+        <p>总分：<span class="text-white font-bold">{quiz.lastResult.totalScore}</span></p>
+        {#if quiz.lastResult.streak > 1}
+          <p class="mt-1">🔥 {quiz.lastResult.streak}连对！</p>
+        {/if}
+      </div>
       {#if nextInSec > 0}
-        <p class="mt-6 text-white/50 text-sm">{nextInSec}s 后进入下一题</p>
+        <p class="mt-6 text-white/50 text-sm animate-pulse-gentle">{nextInSec}秒后进入下一题</p>
       {/if}
     </div>
 

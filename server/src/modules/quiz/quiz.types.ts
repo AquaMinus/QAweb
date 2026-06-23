@@ -45,6 +45,8 @@ export interface Player {
   streak: number;               // Consecutive correct answers
   disconnected: boolean;
   disconnectSince?: number;     // Unix ms when disconnect started
+  clockOffset: number;          // clientTime - serverTime (ms), computed via sync handshake
+  clockLatency: number;         // estimated one-way network latency (ms)
 }
 
 // ── Room state (in-memory) ──
@@ -53,12 +55,14 @@ export interface Room {
   hostId: string;
   hostWs: ServerWebSocket | null;
   questionSetId: string;
+  questionSetTitle: string;      // Denormalized for history / persistence
   questions: CachedQuestion[];
   currentQuestionIndex: number;  // 0-based, -1 if not started
   phase: RoomPhase;
   phaseEnteredAt: number;        // Unix ms
   players: Map<string, Player>;  // sessionToken -> Player
   playerOrder: string[];         // Join order for tie-breaking
+  gameStartedAt: number;         // Unix ms, set when host starts the quiz
   locked: boolean;
   advanceMode: AdvanceMode;
   settings: RoomSettings;
@@ -76,4 +80,5 @@ export interface RoomSettings {
   scoringMode: ScoringMode;     // 'fixed' | 'time_decay'
   advanceMode: AdvanceMode;     // 'manual' | 'auto'
   autoAdvanceDelayMs: number;   // Delay between phases in auto mode
+  showQuestionText: boolean;    // Whether to show question text on player screens
 }
