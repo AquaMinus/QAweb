@@ -18,7 +18,6 @@
   let loading = $state(true);
   let error = $state('');
   let fileInput = $state<HTMLInputElement | null>(null);
-  let batchOpen = $state(false);
   let importLoading = $state(false);
 
   // Editor state
@@ -136,17 +135,16 @@
     input.value = '';
   }
 
-  async function handleBatchImport(_title: string, format: 'csv' | 'json' | 'txt', content: string) {
+  async function handleBatchImport(format: 'csv' | 'json' | 'txt', content: string) {
     importLoading = true;
     error = '';
     try {
       const res = await questionsApi.importText(setId, format, content);
-      batchOpen = false;
       await loadSet();
       alert(`导入完成！成功 ${res.imported} 题${res.errors?.length ? `，${res.errors.length} 条错误` : ''}`);
       if (res.errors?.length > 0) console.warn('Import errors:', res.errors);
     } catch (err) {
-      error = err instanceof ApiError ? err.message : '导入失败，请检查格式';
+      throw err; // let BatchImport show the error
     } finally {
       importLoading = false;
     }
@@ -192,17 +190,7 @@
         class="px-4 py-2 rounded-xl bg-gray-700 text-gray-300 text-sm font-medium hover:bg-gray-600 transition-colors cursor-pointer inline-flex items-center">📄 CSV模板</button>
       <button onclick={() => handleDownloadTemplate('txt')}
         class="px-4 py-2 rounded-xl bg-gray-700 text-gray-300 text-sm font-medium hover:bg-gray-600 transition-colors cursor-pointer inline-flex items-center">📄 TXT模板</button>
-      <button onclick={() => batchOpen = !batchOpen}
-        class={['px-4 py-2 rounded-xl text-sm font-medium transition-colors cursor-pointer inline-flex items-center',
-          batchOpen ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
-        ]}>📋 批量录入</button>
     </div>
-
-    {#if batchOpen}
-      <div class="rounded-xl bg-[var(--color-surface)] border border-gray-700 p-4 mb-6">
-        <BatchImport onImport={handleBatchImport} loading={importLoading} />
-      </div>
-    {/if}
 
     {#if error}
       <div class="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-2 text-red-400 text-sm">{error}</div>
@@ -258,6 +246,10 @@
   <div class="fixed inset-0 z-50 flex items-start justify-center pt-10 px-4 bg-black/70" onclick={closeEditor} onkeydown={(e) => e.key === 'Escape' && closeEditor()}>
     <div class="bg-[var(--color-surface)] border border-gray-700 rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto" onclick={(e) => e.stopPropagation()}>
       <h2 class="text-lg font-semibold text-white mb-4">{editing ? '编辑题目' : '添加题目'}</h2>
+
+      {#if !editing}
+        <BatchImport onImport={handleBatchImport} loading={importLoading} showTitle={false} />
+      {/if}
 
       <!-- Question text -->
       <div class="mb-3">

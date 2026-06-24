@@ -74,13 +74,13 @@ export function parseCSV(content: string): ParseResult {
     try {
       const row = parseCSVLine(lines[i]);
       if (row.length < 3) {
-        errors.push(`第 ${i} 行: 列数不足`);
+        errors.push(`第 ${i + 1} 行: 列数不足`);
         continue;
       }
 
       const text = row[0]?.trim();
       if (!text) {
-        errors.push(`第 ${i} 行: 题干为空`);
+        errors.push(`第 ${i + 1} 行: 题干为空`);
         continue;
       }
 
@@ -94,11 +94,11 @@ export function parseCSV(content: string): ParseResult {
       }
 
       if (opts.length < 2) {
-        errors.push(`第 ${i} 行: 选项不足（至少2个）`);
+        errors.push(`第 ${i + 1} 行: 选项不足（至少2个）`);
         continue;
       }
       if (!opts.some(o => o.isCorrect)) {
-        errors.push(`第 ${i} 行: 没有标记正确答案（用 * 前缀）`);
+        errors.push(`第 ${i + 1} 行: 没有标记正确答案（用 * 前缀）`);
         continue;
       }
 
@@ -107,7 +107,7 @@ export function parseCSV(content: string): ParseResult {
         options: opts.map((o, idx) => ({ ...o, color: DEFAULT_COLORS[idx % 4], orderIndex: idx })),
       });
     } catch (e: any) {
-      errors.push(`第 ${i} 行: ${e.message}`);
+      errors.push(`第 ${i + 1} 行: ${e.message}`);
     }
   }
 

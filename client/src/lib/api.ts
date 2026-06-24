@@ -58,7 +58,7 @@ async function request<T>(
   const data = await res.json();
 
   if (!res.ok) {
-    throw new ApiError(data.error || 'UNKNOWN', data.message || 'Request failed', res.status);
+    throw new ApiError(data.error || 'UNKNOWN', data.message || 'Request failed', res.status, data.errors);
   }
 
   return data as T;
@@ -67,11 +67,13 @@ async function request<T>(
 export class ApiError extends Error {
   code: string;
   status: number;
+  errors?: string[];
 
-  constructor(code: string, message: string, status: number) {
+  constructor(code: string, message: string, status: number, errors?: string[]) {
     super(message);
     this.code = code;
     this.status = status;
+    this.errors = errors;
     this.name = 'ApiError';
   }
 }

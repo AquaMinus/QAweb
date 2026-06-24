@@ -41,12 +41,14 @@
     } catch { error = '创建失败'; }
   }
 
-  async function handleQuickImport(title: string, format: 'csv' | 'json' | 'txt', content: string) {
+  async function handleQuickImport(format: 'csv' | 'json' | 'txt', content: string) {
+    if (!newTitle.trim()) return;
     importLoading = true;
     error = '';
     try {
-      await questionsApi.quickCreate(title, format, content);
+      await questionsApi.quickCreate(newTitle.trim(), format, content);
       showCreate = false;
+      newTitle = ''; newDesc = '';
       await loadSets();
     } catch (err) {
       if (err instanceof ApiError) {
@@ -121,7 +123,7 @@
             <Button variant="secondary" onclick={() => showCreate = false}>取消</Button>
           </div>
         </form>
-        <BatchImport onImport={handleQuickImport} loading={importLoading} />
+        <BatchImport onImport={handleQuickImport} loading={importLoading} showTitle={false} />
       </div>
     {/if}
 

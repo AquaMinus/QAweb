@@ -52,10 +52,10 @@
     creating = false;
   }
 
-  async function handleQuickImport(title: string, format: 'csv' | 'json' | 'txt', content: string) {
+  async function handleQuickImport(format: 'csv' | 'json' | 'txt', content: string) {
+    const title = `快速题库 ${new Date().toLocaleString('zh-CN')}`;
     importLoading = true;
     try {
-      // Step 1: quick-create the set from pasted text
       const res = await questionsApi.quickCreate(title, format, content);
       // Step 2: create room from the new set
       const room = await roomsApi.create({
