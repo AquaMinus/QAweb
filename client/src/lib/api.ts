@@ -130,19 +130,21 @@ export const questionsApi = {
     request<any>('DELETE', `/questions/sets/${setId}/questions/${questionId}`),
 
   importQuestions: (setId: string, formData: FormData) =>
-    fetch(`${BASE}/questions/sets/${setId}/import`, {
+    fetch(`${API_BASE}/questions/sets/${setId}/import`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${getToken()}` },
       body: formData,
     }).then(r => r.json()),
 
   exportQuestions: (setId: string, format: 'json' | 'csv' = 'json') =>
-    fetch(`${BASE}/questions/sets/${setId}/export?format=${format}`, {
+    fetch(`${API_BASE}/questions/sets/${setId}/export?format=${format}`, {
       headers: { Authorization: `Bearer ${getToken()}` },
     }).then(r => r.blob()),
 
   downloadTemplate: (format: 'csv' | 'json' | 'txt') =>
-    fetch(`${BASE}/questions/templates/${format}`).then(r => r.blob()),
+    fetch(`${API_BASE}/questions/templates/${format}`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    }).then(r => r.blob()),
 
   createShareLink: (setId: string, expiresInHours: number) =>
     request<any>('POST', `/questions/sets/${setId}/share`, { expiresInHours }),
