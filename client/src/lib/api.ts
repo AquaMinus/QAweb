@@ -132,6 +132,9 @@ export const questionsApi = {
   deleteQuestion: (setId: string, questionId: string) =>
     request<any>('DELETE', `/questions/sets/${setId}/questions/${questionId}`),
 
+  importText: (setId: string, format: 'csv' | 'json' | 'txt', content: string) =>
+    request<any>('POST', `/questions/sets/${setId}/import-text`, { format, content }),
+
   importQuestions: (setId: string, formData: FormData) =>
     fetch(`${API_BASE}/questions/sets/${setId}/import`, {
       method: 'POST',

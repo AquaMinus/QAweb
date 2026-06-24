@@ -226,6 +226,43 @@ questionRoutes.post('/sets/:setId/import', async (c) => {
   });
 });
 
+// Import questions from pasted text (same logic as file import but accepts raw text)
+questionRoutes.post('/sets/:setId/import-text', async (c) => {
+  const host = c.var.host;
+  const setId = c.req.param('setId');
+
+  const set = svc.getSet(setId, host.id);
+  if (!set) return c.json({ error: 'NOT_FOUND', message: '题集不存在' }, 404);
+
+  const { format, content } = await c.req.json();
+  if (!content?.trim()) {
+    return c.json({ error: 'VALIDATION', message: '内容不能为空' }, 400);
+  }
+
+  let result;
+  switch (format) {
+    case 'csv':  result = parseCSV(content); break;
+    case 'json': result = parseJSON(content); break;
+    case 'txt':  result = parseTXT(content); break;
+    default:     return c.json({ error: 'VALIDATION', message: '格式应为 csv/json/txt' }, 400);
+  }
+
+  if (result.questions.length === 0) {
+    return c.json({ error: 'PARSE_FAILED', message: '未能解析出有效题目', errors: result.errors }, 400);
+  }
+
+  const imported: any[] = [];
+  for (const q of result.questions) {
+    imported.push(svc.addQuestion(setId, q));
+  }
+
+  return c.json({
+    imported: imported.length,
+    errors: result.errors,
+    set: svc.getSet(setId, host.id),
+  });
+});
+
 // Export question set
 questionRoutes.get('/sets/:id/export', (c) => {
   const host = c.var.host;
