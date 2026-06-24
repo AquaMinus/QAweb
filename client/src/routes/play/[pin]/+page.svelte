@@ -205,16 +205,19 @@
       <div class="flex-1 grid grid-cols-2 gap-3 p-3">
         {#each quiz.currentQuestion.colors as color, i}
           <button onclick={() => handleAnswer(color)} disabled={quiz.answerLocked || readingMode}
-            class={['rounded-2xl flex flex-col items-center justify-center gap-1 transition-all cursor-pointer',
+            class={['rounded-2xl flex flex-col items-center justify-center gap-2 p-3 transition-all cursor-pointer min-h-0',
               COLORS[color],
               (quiz.answerLocked || readingMode) ? 'opacity-30 scale-95' : 'active:scale-95 hover:brightness-110',
               (quiz.myAnswerId === quiz.currentQuestion?.colorOptionIds?.[color]) ? 'ring-4 ring-white scale-95' : '',
             ]}>
-            <span class="text-4xl">{{
+            <span class="text-3xl leading-none">{{
               red: '🔴', blue: '🔵', yellow: '🟡', green: '🟢'
             }[color]}</span>
             {#if quiz.currentQuestion?.optionTexts?.[color]}
-              <span class="text-white/80 text-xs px-1">{quiz.currentQuestion.optionTexts[color]}</span>
+              <span class="text-white/90 font-semibold leading-tight text-center break-words line-clamp-3"
+                style="font-size: clamp(0.75rem, 4.5vw, 1.35rem);">
+                {quiz.currentQuestion.optionTexts[color]}
+              </span>
             {/if}
           </button>
         {/each}
