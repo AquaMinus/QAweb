@@ -108,6 +108,9 @@ export const questionsApi = {
   createSet: (data: { title: string; description?: string; coverImageUrl?: string }) =>
     request<any>('POST', '/questions/sets', data),
 
+  quickCreate: (title: string, format: 'csv' | 'json' | 'txt', content: string) =>
+    request<any>('POST', '/questions/sets/quick-create', { title, format, content }),
+
   getSet: (id: string) =>
     request<any>('GET', `/questions/sets/${id}`),
 

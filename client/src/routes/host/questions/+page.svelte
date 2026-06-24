@@ -6,6 +6,7 @@
   import type { QuestionSetData } from '$lib/types';
   import Button from '$components/shared/Button.svelte';
   import Spinner from '$components/shared/Spinner.svelte';
+  import BatchImport from '$components/shared/BatchImport.svelte';
 
   let sets = $state<QuestionSetData[]>([]);
   let loading = $state(true);
@@ -13,6 +14,7 @@
   let showCreate = $state(false);
   let newTitle = $state('');
   let newDesc = $state('');
+  let importLoading = $state(false);
   let exportOpen = $state<string | null>(null);
 
   onMount(() => {
@@ -37,6 +39,24 @@
       newTitle = ''; newDesc = ''; showCreate = false;
       await loadSets();
     } catch { error = '创建失败'; }
+  }
+
+  async function handleQuickImport(title: string, format: 'csv' | 'json' | 'txt', content: string) {
+    importLoading = true;
+    error = '';
+    try {
+      await questionsApi.quickCreate(title, format, content);
+      showCreate = false;
+      await loadSets();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        error = err.message;
+      } else {
+        error = '导入失败，请检查格式';
+      }
+    } finally {
+      importLoading = false;
+    }
   }
 
   async function handleDelete(id: string, title: string) {
@@ -101,6 +121,7 @@
             <Button variant="secondary" onclick={() => showCreate = false}>取消</Button>
           </div>
         </form>
+        <BatchImport onImport={handleQuickImport} loading={importLoading} />
       </div>
     {/if}
 

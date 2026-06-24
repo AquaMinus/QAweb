@@ -6,6 +6,7 @@
   import type { QuestionSetData } from '$lib/types';
   import Button from '$components/shared/Button.svelte';
   import Spinner from '$components/shared/Spinner.svelte';
+  import BatchImport from '$components/shared/BatchImport.svelte';
   import Toast from '$components/shared/Toast.svelte';
 
   let sets = $state<QuestionSetData[]>([]);
@@ -18,6 +19,7 @@
   let showQuestionText = $state(false);
   let streakBonus = $state(false);
   let creating = $state(false);
+  let importLoading = $state(false);
 
   onMount(async () => {
     if (!auth.isLoggedIn) { goto('/host/login'); return; }
@@ -48,6 +50,31 @@
       Toast.show(err instanceof ApiError ? err.message : '创建失败', 'error');
     }
     creating = false;
+  }
+
+  async function handleQuickImport(title: string, format: 'csv' | 'json' | 'txt', content: string) {
+    importLoading = true;
+    try {
+      // Step 1: quick-create the set from pasted text
+      const res = await questionsApi.quickCreate(title, format, content);
+      // Step 2: create room from the new set
+      const room = await roomsApi.create({
+        questionSetId: res.set.id,
+        settings: {
+          timeLimitSec: timeLimit,
+          scoringMode,
+          advanceMode,
+          autoAdvanceDelayMs: autoDelay * 1000,
+          showQuestionText,
+          streakBonus,
+        },
+      });
+      goto(`/host/room/${room.room.pin}`);
+    } catch (err) {
+      Toast.show(err instanceof ApiError ? err.message : '导入失败，请检查格式', 'error');
+    } finally {
+      importLoading = false;
+    }
   }
 
   let durationMin = $derived(Math.ceil((sets.find(s => s.id === selectedSet)?.questionCount ?? 0) * (timeLimit + 10) / 60));
@@ -171,6 +198,16 @@
           {#if creating}<Spinner size="sm" class="mr-2" />{/if}
           创建房间
         </Button>
+
+        <!-- 分隔线 -->
+        <div class="flex items-center gap-3 my-2">
+          <div class="flex-1 h-px bg-gray-700"></div>
+          <span class="text-xs text-gray-500">或者</span>
+          <div class="flex-1 h-px bg-gray-700"></div>
+        </div>
+
+        <!-- 批量录入直接开房 -->
+        <BatchImport onImport={handleQuickImport} loading={importLoading} />
       </div>
     {/if}
   </div>

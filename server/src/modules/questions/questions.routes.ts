@@ -30,6 +30,46 @@ questionRoutes.post('/sets', async (c) => {
   return c.json({ set }, 201);
 });
 
+// Quick-create: set + questions from pasted text (CSV / JSON / TXT)
+questionRoutes.post('/sets/quick-create', async (c) => {
+  const host = c.var.host;
+  const { title, format, content } = await c.req.json();
+  if (!title?.trim()) {
+    return c.json({ error: 'VALIDATION', message: '题集名称不能为空' }, 400);
+  }
+  if (!content?.trim()) {
+    return c.json({ error: 'VALIDATION', message: '题目内容不能为空' }, 400);
+  }
+
+  let result;
+  switch (format) {
+    case 'csv':  result = parseCSV(content); break;
+    case 'json': result = parseJSON(content); break;
+    case 'txt':  result = parseTXT(content); break;
+    default:     return c.json({ error: 'VALIDATION', message: '格式应为 csv/json/txt' }, 400);
+  }
+
+  if (result.questions.length === 0) {
+    return c.json({
+      error: 'PARSE_FAILED',
+      message: '未能解析出有效题目',
+      errors: result.errors,
+    }, 400);
+  }
+
+  const set = svc.createSet(host.id, title.trim());
+  const imported: any[] = [];
+  for (const q of result.questions) {
+    imported.push(svc.addQuestion(set.id, q));
+  }
+
+  return c.json({
+    set: svc.getSet(set.id, host.id),
+    imported: imported.length,
+    errors: result.errors,
+  }, 201);
+});
+
 // Get set with questions
 questionRoutes.get('/sets/:id', (c) => {
   const host = c.var.host;
