@@ -21,7 +21,12 @@
   function quickPreview(text: string): number {
     const t = text.trim();
     if (!t) return 0;
-    if (format === 'csv') return t.split('\n').filter(l => l.trim() && l.includes(',')).length;
+    if (format === 'csv') {
+      const lines = t.split('\n').filter(l => l.trim() && l.includes(','));
+      // Exclude header line if present
+      if (lines.length > 0 && /^(question|题目|题干|text)/i.test(lines[0].trim())) return lines.length - 1;
+      return lines.length;
+    }
     if (format === 'json') {
       try {
         const d = JSON.parse(t);
@@ -32,19 +37,14 @@
     return 0;
   }
 
-  function handlePaste(e: ClipboardEvent) {
-    const text = e.clipboardData?.getData('text') || '';
-    if (text.trim()) {
-      const detected = detectFormat(text);
-      format = detected;
-      content = text;
-      previewCount = quickPreview(text);
+  function handleChange(e: Event) {
+    const text = (e.target as HTMLTextAreaElement).value;
+    content = text;
+    // Auto-detect format if empty or after paste
+    if (text.trim() && (!content || format !== detectFormat(text))) {
+      format = detectFormat(text);
     }
-  }
-
-  function handleContentChange(e: Event) {
-    content = (e.target as HTMLTextAreaElement).value;
-    previewCount = quickPreview(content);
+    previewCount = quickPreview(text);
   }
 
   let title = $state('');
@@ -93,8 +93,7 @@
       <!-- Textarea -->
       <textarea
         value={content}
-        oninput={handleContentChange}
-        onpaste={handlePaste}
+        oninput={handleChange}
         placeholder={format === 'csv'
           ? "题目,*正确答案,错误选项2,错误选项3,错误选项4\n法国的首都是？,*巴黎,伦敦,柏林,马德里"
           : format === 'json'

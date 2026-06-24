@@ -57,13 +57,20 @@ export function parseCSV(content: string): ParseResult {
   const questions: ParsedQuestion[] = [];
 
   const lines = content.split(/\r?\n/).filter(l => l.trim());
-  if (lines.length < 2) {
-    return { questions: [], errors: ['CSV 至少需要表头 + 1行数据'] };
+  if (lines.length < 1) {
+    return { questions: [], errors: ['CSV 内容为空'] };
   }
 
-  // Header line is skipped
+  // Auto-detect: is first line a header or a question?
+  // Header example: "question,option1,option2,option3,option4"
+  const firstRow = parseCSVLine(lines[0]);
+  const hasHeader = firstRow.length >= 3
+    && !firstRow.some(cell => cell.trim().startsWith('*'))
+    && /^(question|题目|题干|text)/i.test(firstRow[0]?.trim() || '');
 
-  for (let i = 1; i < lines.length; i++) {
+  const start = hasHeader ? 1 : 0;
+
+  for (let i = start; i < lines.length; i++) {
     try {
       const row = parseCSVLine(lines[i]);
       if (row.length < 3) {
