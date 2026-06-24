@@ -107,6 +107,9 @@
           {/if}
         </div>
 
+        <!-- Batch import: create set from pasted text then open room -->
+        <BatchImport onImport={handleQuickImport} loading={importLoading} />
+
         <!-- Time limit -->
         <div>
           <label class="block text-sm text-gray-400 mb-2">每题答题时间（秒）</label>
@@ -198,16 +201,6 @@
           {#if creating}<Spinner size="sm" class="mr-2" />{/if}
           创建房间
         </Button>
-
-        <!-- 分隔线 -->
-        <div class="flex items-center gap-3 my-2">
-          <div class="flex-1 h-px bg-gray-700"></div>
-          <span class="text-xs text-gray-500">或者</span>
-          <div class="flex-1 h-px bg-gray-700"></div>
-        </div>
-
-        <!-- 批量录入直接开房 -->
-        <BatchImport onImport={handleQuickImport} loading={importLoading} />
       </div>
     {/if}
   </div>
