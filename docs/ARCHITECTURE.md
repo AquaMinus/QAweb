@@ -94,13 +94,25 @@ lobby → countdown → question → question_result → leaderboard → podium 
 ### 3.2 计分 `quiz.scoring.ts`
 
 ```typescript
+// 基础分
 fixed:       score = maxPoints                              // 1000
 time_decay:  score = round((1 - elapsedMs / (2 × totalTimeMs)) × maxPoints)
+
+// 连击奖励（可选，房间设置开关）
+getStreakBonus(streak, maxPoints):
+  streak 1: +0
+  streak 2: +100   (10% of maxPoints)
+  streak 3: +200
+  streak 4: +300
+  streak 5: +400
+  streak 6+: +500  (cap at 50% of maxPoints)
+
+最终得分 = 基础分 + 连击奖励
 ```
 
 **时间衰减曲线**：0ms 答对 → 1000 分（满分）；截至时刻答对 → 500 分（50%）；答错或超时 → 0 分。
 
-`elapsedMs` = 客户端时间戳经 clockOffset 换算后的服务器时间 - 答题窗口起始时间。
+**连击**：连续答对递增，答错或超时立刻归零。`elapsedMs` = 客户端时间戳经 clockOffset 换算后的服务器时间 - 答题窗口起始时间。
 
 ### 3.3 时钟同步 `client/src/lib/clock.ts` + `index.ts`
 
@@ -151,7 +163,26 @@ time_decay:  score = round((1 - elapsedMs / (2 × totalTimeMs)) × maxPoints)
 - 切标签页/卡主线程后恢复 → 立即显示正确的剩余时间
 - 不追赶旧数值，不做假动画
 
-### 3.7 WebSocket 消息路由 `quiz.ws.ts`
+### 3.7 批量导入 `components/shared/BatchImport.svelte`
+
+可复用组件，支持粘贴 CSV / JSON / TXT 文本直接转化题目：
+
+- **格式自动检测**：粘贴时根据内容特征自动判断 CSV/JSON/TXT
+- **实时预览**：输入时即时显示检测到的题目数量
+- **逐行校验**：服务端解析后返回包含行号的错误详情，前端逐条展示
+- **使用场景**：
+  - 新建题集表单下方（复用表单标题）
+  - 题集详情页「添加题目」弹窗内（无标题，直接追加到当前题集）
+  - 创建房间页「选择题库」下方（自动创建临时题库 → 开房）
+
+### 3.8 登录过期验证 `stores/auth.svelte.ts`
+
+AuthStore 初始化时异步调用 `GET /api/auth/me` 验证 token：
+- 200 → 刷新 host 数据，保持登录态
+- 401 → `clearAuth()` 清除 localStorage，页面自动跳转登录
+- 网络不通 → 保留现有 token（容错）
+
+### 3.9 WebSocket 消息路由 `quiz.ws.ts`
 
 | 消息 | 方向 | 作用 |
 |---|---|---|
@@ -170,18 +201,18 @@ time_decay:  score = round((1 - elapsedMs / (2 × totalTimeMs)) × maxPoints)
 | `quiz:result` / `quiz:result_player` | S→C | 答案揭晓(含 rankings) |
 | `quiz:next_countdown` | S→C | 自动模式下一题倒计时 |
 
-### 3.8 WS 连接管理 `ws/connection-manager.ts`
+### 3.10 WS 连接管理 `ws/connection-manager.ts`
 
 `Map<pin, Map<sessionToken, WebSocket>>` — 按房间+玩家两级索引，支持 sendToPlayer / broadcast / sendToHost。
 
-### 3.9 WS 协议 `ws/protocol.ts`
+### 3.11 WS 协议 `ws/protocol.ts`
 
 消息格式：
 ```json
 { "type": "player:answer", "payload": { "optionId": "uuid", "clientTime": 1719000001000 }, "ts": 1234567890 }
 ```
 
-### 3.10 历史记录与导出 `modules/rooms/rooms.persistence.ts`
+### 3.12 历史记录与导出 `modules/rooms/rooms.persistence.ts`
 
 - `saveGameRoom(room)`：游戏结束时持久化房间元信息 + 所有玩家排名 + 全部答题记录
 - `getRoomHistory(hostId)`：查询主持人所有已结束房间
@@ -191,7 +222,7 @@ time_decay:  score = round((1 - elapsedMs / (2 × totalTimeMs)) × maxPoints)
   - **答题统计**：每题作答人数/正确率/各选项选择人数
   - **答题明细**：每题每人选择/对错/得分/用时
 
-### 3.11 连接处理 `index.ts`
+### 3.13 连接处理 `index.ts`
 
 WS 连接时解析 URL 参数：
 - 连接建立 → `startHeartbeat` → 等待客户端发起时钟同步
@@ -246,7 +277,9 @@ WS 连接时解析 URL 参数：
 | `POST /api/auth/reset-password` | 无 | 重置密码 |
 | `CRUD /api/questions/sets` | JWT | 题集管理 |
 | `CRUD /api/questions/sets/:id/questions` | JWT | 题目管理 |
+| `POST /api/questions/sets/quick-create` | JWT | 文本一步创建题集+导入 |
 | `POST /api/questions/sets/:id/import` | JWT | 文件导入 |
+| `POST /api/questions/sets/:id/import-text` | JWT | 文本追加导入到已有题集 |
 | `GET /api/questions/sets/:id/export` | JWT | 文件导出(json/csv) |
 | `POST /api/questions/sets/:id/share` | JWT | 生成分享链接 |
 | `GET /api/questions/shared/:token` | 无 | 免登录下载 |
