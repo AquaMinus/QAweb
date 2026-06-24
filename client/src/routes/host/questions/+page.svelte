@@ -52,7 +52,9 @@
       await loadSets();
     } catch (err) {
       if (err instanceof ApiError) {
-        error = err.message;
+        let msg = err.message;
+        if (err.errors?.length) msg += '\n' + err.errors.join('\n');
+        error = msg;
       } else {
         error = '导入失败，请检查格式';
       }

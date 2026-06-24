@@ -71,7 +71,7 @@
       });
       goto(`/host/room/${room.room.pin}`);
     } catch (err) {
-      Toast.show(err instanceof ApiError ? err.message : '导入失败，请检查格式', 'error');
+      throw err; // let BatchImport display detailed errors
     } finally {
       importLoading = false;
     }
