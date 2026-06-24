@@ -1,7 +1,7 @@
 import type { ScoringMode } from './quiz.types.js';
 
 /**
- * Calculate the score for a single answer.
+ * Calculate the base score for a single answer.
  *
  * - Fixed mode: always returns maxPoints for a correct answer.
  * - Time-decay mode: score = round((1 - elapsedMs / (2 * totalTimeMs)) * maxPoints)
@@ -22,4 +22,16 @@ export function calculateScore(
   const elapsedRatio = Math.min(answerTimeMs / (2 * timeLimitMs), 1.0);
   const raw = Math.round(maxPoints * (1 - elapsedRatio));
   return Math.max(raw, 0);
+}
+
+/**
+ * Calculate streak bonus for a given streak count.
+ *
+ * Streak 1: +0     Streak 2: +100   Streak 3: +200
+ * Streak 4: +300   Streak 5: +400   Streak 6+: +500 (cap)
+ */
+export function getStreakBonus(streak: number, maxPoints: number): number {
+  if (streak < 2) return 0;
+  const bonusUnit = Math.round(maxPoints * 0.1); // 10% of max per streak level
+  return Math.min((streak - 1) * bonusUnit, maxPoints * 0.5); // cap at 50% of max
 }

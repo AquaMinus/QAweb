@@ -4,7 +4,7 @@ import type {
   Room, Player, PlayerAnswer, CachedQuestion, RoomSettings,
   LeaderboardEntry, AnswerDistribution, OptionColor,
 } from './quiz.types.js';
-import { calculateScore } from './quiz.scoring.js';
+import { calculateScore, getStreakBonus } from './quiz.scoring.js';
 import {
   sendToHost, sendToPlayer, broadcastToPlayers, broadcastToRoom,
 } from './quiz.broadcast.js';
@@ -66,6 +66,7 @@ class QuizEngine {
         advanceMode: settings.advanceMode || 'manual',
         autoAdvanceDelayMs: settings.autoAdvanceDelayMs || config.defaultAutoAdvanceMs,
         showQuestionText: settings.showQuestionText || false,
+        streakBonus: settings.streakBonus || false,
       },
       createdAt: now,
       lastActivityAt: now,
@@ -344,22 +345,28 @@ class QuizEngine {
     const option = question.options.find(o => o.id === optionId);
     const correct = option?.isCorrect ?? false;
     const timeLimitMs = room.settings.timeLimitSec * 1000;
-    const score = correct ? calculateScore(answerTimeMs, timeLimitMs, room.settings.maxPoints, room.settings.scoringMode) : 0;
+    const maxPoints = room.settings.maxPoints;
+    const baseScore = correct ? calculateScore(answerTimeMs, timeLimitMs, maxPoints, room.settings.scoringMode) : 0;
 
-    console.log(`[Engine] Answer: player=${player.name}, option=${optionId}, correct=${correct}, elapsed=${answerTimeMs}ms, score=${score}`);
-
+    // Streak tracking
     if (correct) {
       player.streak++;
     } else {
       player.streak = 0;
     }
 
-    player.totalScore += score;
+    // Streak bonus (only if enabled and answer is correct)
+    const streakBonus = (correct && room.settings.streakBonus) ? getStreakBonus(player.streak, maxPoints) : 0;
+    const totalPoints = baseScore + streakBonus;
+
+    console.log(`[Engine] Answer: player=${player.name}, correct=${correct}, elapsed=${answerTimeMs}ms, base=${baseScore}, streak=${player.streak}, bonus=${streakBonus}, total=${totalPoints}`);
+
+    player.totalScore += totalPoints;
     player.answers.set(question.id, {
       questionId: question.id,
       optionId,
       answerTimeMs,
-      score,
+      score: totalPoints,
       correct,
     });
 
@@ -544,11 +551,14 @@ class QuizEngine {
     for (const [, player] of room.players) {
       if (player.disconnected) continue;
       const answer = player.answers.get(question.id);
+      const streakBonusEarned = (answer?.correct && room.settings.streakBonus)
+        ? getStreakBonus(player.streak, room.settings.maxPoints) : 0;
       sendToPlayer(room, player.sessionToken, 'quiz:result_player', {
         correctOptionId: correctOption.id,
         myAnswerId: answer?.optionId || null,
         correct: answer?.correct ?? false,
         scoreEarned: answer?.score ?? 0,
+        streakBonus: streakBonusEarned,
         totalScore: player.totalScore,
         streak: player.streak,
       });

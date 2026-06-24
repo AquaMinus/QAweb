@@ -108,6 +108,7 @@ export interface PlayerResultPayload {
   myAnswerId: string | null;  // null if timed out
   correct: boolean;
   scoreEarned: number;
+  streakBonus: number;        // extra points from consecutive correct streak
   totalScore: number;
   streak: number;
 }

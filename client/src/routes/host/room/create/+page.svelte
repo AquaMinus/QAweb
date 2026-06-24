@@ -16,6 +16,7 @@
   let advanceMode = $state<'manual' | 'auto'>('manual');
   let autoDelay = $state(5);
   let showQuestionText = $state(false);
+  let streakBonus = $state(false);
   let creating = $state(false);
 
   onMount(async () => {
@@ -39,6 +40,7 @@
           advanceMode,
           autoAdvanceDelayMs: autoDelay * 1000,
           showQuestionText,
+          streakBonus,
         },
       });
       goto(`/host/room/${res.room.pin}`);
@@ -138,6 +140,22 @@
               ]}>显示题干+选项</button>
           </div>
           <p class="text-gray-500 text-xs mt-2">开启后玩家手机端可看到题目内容，无需看大屏</p>
+        </div>
+
+        <!-- Streak bonus -->
+        <div>
+          <label class="block text-sm text-gray-400 mb-2">连击奖励</label>
+          <div class="flex gap-2">
+            <button onclick={() => streakBonus = false}
+              class={['px-4 py-2 rounded-xl text-sm font-medium transition-colors cursor-pointer',
+                !streakBonus ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
+              ]}>关闭</button>
+            <button onclick={() => streakBonus = true}
+              class={['px-4 py-2 rounded-xl text-sm font-medium transition-colors cursor-pointer',
+                streakBonus ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
+              ]}>开启 🔥</button>
+          </div>
+          <p class="text-gray-500 text-xs mt-2">连续答对额外加分：连击2 +100 · 3 +200 · 4 +300 · 5 +400 · 6+ +500，答错归零</p>
         </div>
 
         <!-- Duration estimate -->

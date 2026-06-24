@@ -81,4 +81,5 @@ export interface RoomSettings {
   advanceMode: AdvanceMode;     // 'manual' | 'auto'
   autoAdvanceDelayMs: number;   // Delay between phases in auto mode
   showQuestionText: boolean;    // Whether to show question text on player screens
+  streakBonus: boolean;         // Whether to award extra points for consecutive correct answers
 }

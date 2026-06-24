@@ -96,6 +96,7 @@ export interface PlayerResultPayload {
   myAnswerId: string | null;
   correct: boolean;
   scoreEarned: number;
+  streakBonus: number;
   totalScore: number;
   streak: number;
 }
